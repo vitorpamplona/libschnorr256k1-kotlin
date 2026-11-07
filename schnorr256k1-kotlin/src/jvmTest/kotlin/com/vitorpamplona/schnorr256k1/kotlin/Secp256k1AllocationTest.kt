@@ -100,7 +100,10 @@ class Secp256k1AllocationTest {
         bytesPerOp("privKeyTweakAdd", n) { Secp256k1.privKeyTweakAdd(secs[it], secs[(it + 1) % n]) }
         val bm = List(32) { r.nextBytes(32) }
         val bs = List(32) { Secp256k1.signSchnorr(bm[it], secs[0], aux) }
-        bytesPerOp("verifySchnorrBatch(32), per call", 1) { Secp256k1.verifySchnorrBatch(pubs[0], bs, bm) }
+        assertNoAllocation(
+            "verifySchnorrBatch(32), per call",
+            bytesPerOp("verifySchnorrBatch(32), per call", 1) { Secp256k1.verifySchnorrBatch(pubs[0], bs, bm) },
+        )
         val fe = List(n) { Fe4(r.nextLong(), r.nextLong(), r.nextLong(), r.nextLong() ushr 1) }
         val out = Fe4()
         assertNoAllocation("FieldP.inv", bytesPerOp("FieldP.inv", n) { FieldP.inv(out, fe[it]) })

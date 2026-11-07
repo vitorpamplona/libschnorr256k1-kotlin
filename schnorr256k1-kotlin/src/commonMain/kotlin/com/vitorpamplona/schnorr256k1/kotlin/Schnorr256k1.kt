@@ -94,7 +94,11 @@ public object Schnorr256k1 {
         pub: ByteArray,
     ): Boolean = orFalse { Secp256k1.verifySchnorrFast(sig, msg, pub) }
 
-    /** True if every signature in [sigs] is valid for the matching message under [pub]. */
+    /**
+     * True if every signature in [sigs] is valid for the matching message under [pub], by BIP-340
+     * batch verification: 128-bit weights derived from a hash of all inputs, so the answer is
+     * wrong with probability about 2⁻¹²⁸. Cheaper per signature than [schnorrVerify] (about 60%).
+     */
     public fun schnorrVerifyBatch(
         pub: ByteArray,
         sigs: List<ByteArray>,

@@ -109,7 +109,9 @@ so the comparison with ACINQ becomes fair only then.
 
 ## Recommendation
 
-1. Replace ACINQ for **verification** first (batch verify is already 5-10x faster than ACINQ).
+1. Replace ACINQ for **verification** first. (Written when batch verify was 5-10x faster than
+   ACINQ's single verify; that batch had no weights and accepted cancelling invalid signatures.
+   Weighted, it is about even with ACINQ on the JVM and ~1.8x faster on Kotlin/Native.)
 2. Keep ACINQ for signing, key derivation and ECDH until constant-time `mulG`, constant-time
    variable-base `mul`, branch-free conditional negation and branch-free reductions exist, with
    tests that compare against ACINQ.

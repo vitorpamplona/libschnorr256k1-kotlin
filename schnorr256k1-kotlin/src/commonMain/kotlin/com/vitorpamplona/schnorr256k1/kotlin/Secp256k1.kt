@@ -641,32 +641,73 @@ internal object Secp256k1 {
 
     // ==================== Same-Pubkey Batch Verification ====================
 
+    private val BATCH_PREFIX: ByteArray = sha256("BIP0340/batch".encodeToByteArray()).let { it + it }
+
+    /** Signatures per Strauss pass: their wNAF tables share one inversion and 128 doublings. */
+    private const val BATCH_CHUNK = 32
+
+    /** Odd multiples R, 3R, …, 15R per point: wNAF window 5. */
+    private const val BATCH_TABLE = 8
+    private const val BATCH_WINDOW = 5
+    private const val BATCH_COEF_BITS = 128
+
+    /** Per-thread buffers for [verifySchnorrBatch], made on a thread's first batch (~80 KB). */
+    private class BatchScratch {
+        val jac = Array(BATCH_CHUNK * BATCH_TABLE) { MutablePoint() }
+        val aff = Array(BATCH_CHUNK * BATCH_TABLE) { AffinePoint() }
+        val prods = Array(BATCH_CHUNK * BATCH_TABLE) { Fe4() }
+        val wnaf = Array(BATCH_CHUNK) { IntArray(BATCH_COEF_BITS + BATCH_WINDOW + 1) }
+        val wnafLen = IntArray(BATCH_CHUNK)
+        val wnafTmp = LongArray(4)
+        val coef = Fe4()
+        val coefBytes = ByteArray(32)
+        val coefBlock = ByteArray(32)
+        val counter = ByteArray(36)
+        val term = Fe4()
+        val wide = Wide8()
+        val sSum = Fe4()
+        val eSum = Fe4()
+        val rSum = MutablePoint()
+        val two = MutablePoint()
+        val accA = MutablePoint()
+        val accB = MutablePoint()
+        val q = MutablePoint()
+        val sum = MutablePoint()
+        val negY = Fe4()
+        val inv = Fe4()
+        val zInv = Fe4()
+        val zInv2 = Fe4()
+        val zInv3 = Fe4()
+
+        /** The seed hash's input; grows to the largest batch this thread has verified. */
+        var seedBuf = ByteArray(0)
+    }
+
+    private val batchScratch = ScratchLocal { BatchScratch() }
+
     /**
-     * Batch-verify multiple BIP-340 Schnorr signatures from the SAME public key
-     * using scalar and point summation. Returns true if ALL signatures are valid.
+     * Batch-verify BIP-340 signatures by the SAME public key. True if and only if every
+     * signature is valid, except with probability about 2⁻¹²⁸.
      *
-     * Instead of n individual mulDoubleG calls (each with ~130 doublings + toAffine),
-     * this combines everything into scalar sums + one point sum + one mulDoubleG:
+     * BIP-340's batch verification, for one key P:
      *
-     *   S = Σ sᵢ mod n          (scalar addition — trivial)
-     *   E = Σ eᵢ mod n          (scalar addition — trivial)
-     *   R_sum = Σ liftX(rᵢ)     (point addition — n-1 addMixed calls)
-     *   Check: S·G - E·P - R_sum == O  (one mulDoubleG + point subtraction)
+     *   (Σ aᵢ·sᵢ)·G == Σ aᵢ·Rᵢ + (Σ aᵢ·eᵢ)·P
      *
-     * This works because valid Schnorr signatures are linear:
-     *   sᵢ·G = Rᵢ + eᵢ·P  →  (Σsᵢ)·G = (ΣRᵢ) + (Σeᵢ)·P
+     * with a₁ = 1 and the other aᵢ 128-bit weights from a CSPRNG (SHA-256 in counter mode)
+     * seeded by a tagged hash of every input: the key, each message (with its length) and each
+     * signature. Without the weights the check is a plain sum, and errors cancel: (R₁, s₁ + d)
+     * and (R₂, s₂ − d) are both invalid but sum to a valid pair. With them, making errors
+     * cancel means finding a weight before it is known, which takes about 2¹²⁸ hashes.
      *
-     * Performance: ~1,350 + 11·n field ops vs n × ~1,620 individual (with caches).
-     * For n=16: ~1,526 vs ~25,920 = ~17x throughput improvement.
+     * The left side is one Shamir mulDoubleG. The right side is a Strauss multi-scalar
+     * multiplication in chunks of [BATCH_CHUNK]: each Rᵢ gets a wNAF-5 table of odd multiples,
+     * made affine with one inversion per chunk, and the chunk's points share ~130 doublings.
+     * Per signature: one liftX, one SHA-256 for eᵢ, half of one for aᵢ, ~7 full and ~22 mixed
+     * point additions, against ~130 doublings and a table for a single verify.
      *
-     * Security: by linearity, if any signature is invalid (sᵢ·G ≠ Rᵢ + eᵢ·P),
-     * the sum fails — errors cannot cancel without solving the discrete log.
-     * For extra hardening with duplicate events from multiple relays, the caller
-     * can verify duplicates individually to detect relay manipulation.
-     *
-     * @param pub 32-byte x-only public key (same for all events)
+     * @param pub 32-byte x-only public key (same for all signatures)
      * @param signatures list of 64-byte signatures (R.x || s)
-     * @param messages list of message byte arrays (same order as signatures)
+     * @param messages list of messages, same order as signatures
      * @return true if all signatures are valid for this pubkey
      */
     fun verifySchnorrBatch(
@@ -679,85 +720,184 @@ internal object Secp256k1 {
         if (n == 0) return true
         if (n == 1) return verifySchnorr(signatures[0], messages[0], pub)
         if (pub.size != 32) return false
+        for (sig in signatures) if (sig.size != 64) return false
 
         val sc = ECPoint.getScratch()
+        val b = batchScratch.get()
 
-        // Decompress pubkey P once (uses liftX cache)
         val px = sc.entryPx
         val py = sc.entryPy
         if (!liftXCached(px, py, pub)) return false
 
-        // Accumulators for the scalar sums
-        val sSum = Fe4() // Σ sᵢ mod n
-        val eSum = Fe4() // Σ eᵢ mod n
+        // seed = tagged hash of pub || (len(msgᵢ) || msgᵢ)… || sigᵢ…
+        var seedLen = 64 + 32
+        for (m in messages) seedLen += 4 + m.size
+        seedLen += 64 * n
+        if (b.seedBuf.size < seedLen) b.seedBuf = ByteArray(seedLen)
+        val seedInput = b.seedBuf
+        BATCH_PREFIX.copyInto(seedInput, 0)
+        pub.copyInto(seedInput, 64)
+        var off = 96
+        for (m in messages) {
+            seedInput[off] = (m.size ushr 24).toByte()
+            seedInput[off + 1] = (m.size ushr 16).toByte()
+            seedInput[off + 2] = (m.size ushr 8).toByte()
+            seedInput[off + 3] = m.size.toByte()
+            m.copyInto(seedInput, off + 4)
+            off += 4 + m.size
+        }
+        for (sig in signatures) {
+            sig.copyInto(seedInput, off)
+            off += 64
+        }
+        sha256Into(b.counter, seedInput, seedLen) // counter = seed || 4-byte block index
 
-        // Accumulator for R point sum (Jacobian)
-        val rSum = MutablePoint()
-        rSum.setInfinity()
-        val rTmp = sc.entryResult // reuse as temp for addMixed
+        val r = sc.scalarTmp1
+        val s = sc.scalarTmp2
+        val e = sc.scalarTmp3
+        val rx = sc.entryTmp
+        val ry = sc.entryTmp2
+        b.sSum.setZero()
+        b.eSum.setZero()
+        b.rSum.setInfinity()
 
-        // Pre-allocated scratch for the per-signature loop (eliminates ~7 allocs per sig)
-        val r = sc.scalarTmp1 // reuse for r parsing
-        val s = sc.scalarTmp2 // reuse for s parsing
-        val e = sc.scalarTmp3 // reuse for e scalar
-        val rx = sc.entryTmp // reuse for liftX output x
-        val ry = sc.entryTmp2 // reuse for liftX output y
+        var chunkStart = 0
+        while (chunkStart < n) {
+            val chunkEnd = minOf(chunkStart + BATCH_CHUNK, n)
+            var maxLen = 0
+            for (i in chunkStart until chunkEnd) {
+                val sig = signatures[i]
+                val msg = messages[i]
+                U256.fromBytesInto(r, sig, 0)
+                if (U256.cmp(r, FieldP.P) >= 0) return false
+                U256.fromBytesInto(s, sig, 32)
+                if (U256.cmp(s, ScalarN.N) >= 0) return false
 
-        for (i in 0 until n) {
-            val sig = signatures[i]
-            val msg = messages[i]
-            if (sig.size != 64) return false
+                // eᵢ = H(rᵢ || pub || msgᵢ)
+                val hashLen = 64 + 32 + 32 + msg.size
+                val hashInput = if (hashLen <= sc.hashBuf.size) sc.hashBuf else ByteArray(hashLen)
+                CHALLENGE_PREFIX.copyInto(hashInput, 0, 0, 64)
+                sig.copyInto(hashInput, 64, 0, 32)
+                pub.copyInto(hashInput, 96, 0, 32)
+                msg.copyInto(hashInput, 128, 0, msg.size)
+                sha256Into(sc.bytesTmp1, hashInput, hashLen)
+                U256.fromBytesInto(e, sc.bytesTmp1, 0)
+                ScalarN.reduceTo(e, e)
 
-            // Parse r, s from signature into scratch
-            U256.fromBytesInto(r, sig, 0)
-            if (U256.cmp(r, FieldP.P) >= 0) return false
-            U256.fromBytesInto(s, sig, 32)
-            if (U256.cmp(s, ScalarN.N) >= 0) return false
+                if (!KeyCodec.liftX(rx, ry, r, sc.zInv)) return false
 
-            // Accumulate s: sSum += sᵢ mod n
-            ScalarN.addTo(sSum, sSum, s)
+                if (i == 0) {
+                    // a₁ = 1
+                    ScalarN.addTo(b.sSum, b.sSum, s)
+                    ScalarN.addTo(b.eSum, b.eSum, e)
+                    b.rSum.setAffine(rx, ry)
+                    b.wnafLen[0] = 0
+                    continue
+                }
+                batchWeight(b, i)
+                ScalarN.mulTo(b.term, b.coef, s, b.wide)
+                ScalarN.addTo(b.sSum, b.sSum, b.term)
+                ScalarN.mulTo(b.term, b.coef, e, b.wide)
+                ScalarN.addTo(b.eSum, b.eSum, b.term)
 
-            // Compute challenge eᵢ = H(rᵢ || pub || msgᵢ) using scratch buffers
-            val hashLen = 64 + 32 + 32 + msg.size
-            val hashInput = if (hashLen <= sc.hashBuf.size) sc.hashBuf else ByteArray(hashLen)
-            CHALLENGE_PREFIX.copyInto(hashInput, 0, 0, 64)
-            sig.copyInto(hashInput, 64, 0, 32)
-            pub.copyInto(hashInput, 96, 0, 32)
-            msg.copyInto(hashInput, 128, 0, msg.size)
-            sha256Into(sc.bytesTmp1, hashInput, hashLen)
-            U256.fromBytesInto(e, sc.bytesTmp1, 0)
-            ScalarN.reduceTo(e, e)
+                val j = i - chunkStart
+                val len = Glv.wnafInto(b.wnaf[j], b.wnafTmp, b.coef, BATCH_WINDOW, BATCH_COEF_BITS)
+                b.wnafLen[j] = len
+                if (len > maxLen) maxLen = len
 
-            // Accumulate e: eSum += eᵢ mod n
-            ScalarN.addTo(eSum, eSum, e)
-
-            // Decompress Rᵢ = liftX(rᵢ) and accumulate into rSum
-            if (!KeyCodec.liftX(rx, ry, r, sc.zInv)) return false
-
-            // rSum += Rᵢ (mixed addition: Rᵢ is affine)
-            if (rSum.isInfinity()) {
-                rSum.setAffine(rx, ry)
-            } else {
-                ECPoint.addMixed(rTmp, rSum, rx, ry, sc)
-                rSum.copyFrom(rTmp)
+                // Odd multiples Rᵢ, 3Rᵢ, …, 15Rᵢ (Jacobian), made affine per chunk below.
+                val base = j * BATCH_TABLE
+                b.jac[base].setAffine(rx, ry)
+                ECPoint.doublePoint(b.two, b.jac[base], sc)
+                for (k in 1 until BATCH_TABLE) ECPoint.addPoints(b.jac[base + k], b.jac[base + k - 1], b.two, sc)
             }
+
+            val first = if (chunkStart == 0) 1 else 0 // R₁ went straight into rSum
+            val count = chunkEnd - chunkStart
+            if (count > first) {
+                batchTablesToAffine(b, first * BATCH_TABLE, count * BATCH_TABLE, sc)
+
+                // Strauss: acc = Σ aᵢ·Rᵢ over the chunk, sharing the doublings.
+                var cur = b.accA
+                var alt = b.accB
+                cur.setInfinity()
+                for (bit in maxLen - 1 downTo 0) {
+                    ECPoint.doublePoint(cur, cur, sc)
+                    for (j in first until count) {
+                        if (bit >= b.wnafLen[j]) continue
+                        val d = b.wnaf[j][bit]
+                        if (d == 0) continue
+                        val p = b.aff[j * BATCH_TABLE + (if (d > 0) d else -d) / 2]
+                        if (d > 0) {
+                            ECPoint.addMixed(alt, cur, p.x, p.y, sc)
+                        } else {
+                            FieldP.neg(b.negY, p.y)
+                            ECPoint.addMixed(alt, cur, p.x, b.negY, sc)
+                        }
+                        val t = cur
+                        cur = alt
+                        alt = t
+                    }
+                }
+                ECPoint.addPoints(b.sum, b.rSum, cur, sc)
+                b.rSum.copyFrom(b.sum)
+            }
+            chunkStart = chunkEnd
         }
 
-        // Compute Q = sSum·G + (-eSum)·P via Shamir's trick (one mulDoubleG)
-        ScalarN.negTo(eSum, eSum)
-        val pPoint = sc.entryPoint
-        pPoint.setAffine(px, py)
-        // mulDoubleG uses sc.mixTmp internally (ping-pong), so output must be separate.
-        val q = MutablePoint()
-        ECPoint.mulDoubleG(q, sSum, pPoint, eSum)
+        // Q = (Σaᵢsᵢ)·G − (Σaᵢeᵢ)·P; valid iff Q == Σ aᵢ·Rᵢ.
+        ScalarN.negTo(b.eSum, b.eSum)
+        sc.entryPoint.setAffine(px, py)
+        ECPoint.mulDoubleG(b.q, b.sSum, sc.entryPoint, b.eSum)
+        FieldP.neg(b.rSum.y, b.rSum.y)
+        ECPoint.addPoints(b.sum, b.q, b.rSum, sc)
+        return b.sum.isInfinity()
+    }
 
-        // Check: Q - R_sum == O  →  Q + (-R_sum) == O
-        // Negate R_sum: just negate its Y coordinate
-        FieldP.neg(rSum.y, rSum.y)
+    /**
+     * aᵢ for i ≥ 1: 16 bytes of SHA-256(seed || ⌊i/2⌋), the first half for even i, the second
+     * for odd i, as a 128-bit scalar (never 0). Leaves it in [BatchScratch.coef].
+     */
+    private fun batchWeight(
+        b: BatchScratch,
+        i: Int,
+    ) {
+        val block = i ushr 1
+        if (i == 1 || (i and 1) == 0) {
+            b.counter[32] = (block ushr 24).toByte()
+            b.counter[33] = (block ushr 16).toByte()
+            b.counter[34] = (block ushr 8).toByte()
+            b.counter[35] = block.toByte()
+            sha256Into(b.coefBlock, b.counter, 36)
+        }
+        b.coefBytes.fill(0, 0, 16)
+        b.coefBlock.copyInto(b.coefBytes, 16, (i and 1) * 16, (i and 1) * 16 + 16)
+        U256.fromBytesInto(b.coef, b.coefBytes, 0)
+        if (b.coef.isZero()) b.coef.l0 = 1L
+    }
 
-        // Add Q + (-R_sum) and check if result is infinity
-        ECPoint.addPoints(sc.entryResult, q, rSum, sc)
-
-        return sc.entryResult.isInfinity()
+    /** Montgomery's trick over b.jac[from until to] into b.aff: one inversion for the chunk. */
+    private fun batchTablesToAffine(
+        b: BatchScratch,
+        from: Int,
+        to: Int,
+        sc: PointScratch,
+    ) {
+        val w = sc.w
+        b.prods[from].copyFrom(b.jac[from].z)
+        for (k in from + 1 until to) FieldP.mul(b.prods[k], b.prods[k - 1], b.jac[k].z, w)
+        FieldP.inv(b.inv, b.prods[to - 1])
+        for (k in to - 1 downTo from) {
+            if (k > from) {
+                FieldP.mul(b.zInv, b.inv, b.prods[k - 1], w)
+                FieldP.mul(b.inv, b.inv, b.jac[k].z, w)
+            } else {
+                b.zInv.copyFrom(b.inv)
+            }
+            FieldP.sqr(b.zInv2, b.zInv, w)
+            FieldP.mul(b.zInv3, b.zInv2, b.zInv, w)
+            FieldP.mul(b.aff[k].x, b.jac[k].x, b.zInv2, w)
+            FieldP.mul(b.aff[k].y, b.jac[k].y, b.zInv3, w)
+        }
     }
 }
