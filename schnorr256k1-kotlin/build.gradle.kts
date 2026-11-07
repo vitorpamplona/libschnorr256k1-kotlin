@@ -1,6 +1,7 @@
 import com.vanniktech.maven.publish.KotlinMultiplatform
 import com.vanniktech.maven.publish.SourcesJar
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.dsl.abi.ExperimentalAbiValidation
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
 import org.jetbrains.kotlin.gradle.plugin.mpp.TestExecutable
 import org.jetbrains.kotlin.konan.target.Family
@@ -12,10 +13,19 @@ plugins {
 }
 
 kotlin {
+    // A library: every public declaration is a choice, and the ABI dump in api/ records it,
+    // so a breaking change shows up in review (and in a major version) instead of by accident.
+    explicitApi()
+
+    @OptIn(ExperimentalAbiValidation::class)
+    abiValidation()
+
     compilerOptions {
         freeCompilerArgs.add("-Xexpect-actual-classes")
     }
 
+    // JVM 17: Quartz, the main consumer, targets 17, and a dependency can't need a newer JVM
+    // than the library that uses it.
     jvm {
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_17)
@@ -35,6 +45,18 @@ kotlin {
 
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_17)
+        }
+
+        withHostTest {}
+
+        // commonTest again, on a device or emulator: ART, and the Android multiply-high paths
+        // (Math.multiplyHigh from API 31, unsignedMultiplyHigh from 35, software below), which
+        // the host tests' desktop JVM doesn't exercise. In the "test" tree, so it compiles
+        // commonTest like the host tests do.
+        withDeviceTestBuilder {
+            sourceSetTreeName = "test"
+        }.configure {
+            instrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         }
     }
 
@@ -115,6 +137,20 @@ kotlin {
             dependsOn(jvmAndroid)
         }
 
+        getByName("androidHostTest") {
+            dependencies {
+                implementation(libs.kotlin.test)
+            }
+        }
+
+        getByName("androidDeviceTest") {
+            dependencies {
+                implementation(libs.kotlin.test)
+                implementation(libs.androidx.test.runner)
+                implementation(libs.androidx.test.junit)
+            }
+        }
+
         val nativeMain =
             create("nativeMain") {
                 dependsOn(commonMain.get())
@@ -168,16 +204,30 @@ kotlin {
 }
 
 mavenPublishing {
-    configure(KotlinMultiplatform(sourcesJar = SourcesJar.Sources()))
+    configure(
+        KotlinMultiplatform(
+            sourcesJar = SourcesJar.Sources(),
+        ),
+    )
 
-    // groupId, artifactId and version come from gradle.properties (GROUP, POM_ARTIFACT_ID,
-    // VERSION_NAME), so CI can override VERSION_NAME with ORG_GRADLE_PROJECT_VERSION_NAME.
+    // groupId, artifactId, and version are configured via gradle.properties
+    // (GROUP, POM_ARTIFACT_ID, VERSION_NAME) so CI can override VERSION_NAME
+    // via ORG_GRADLE_PROJECT_VERSION_NAME without conflicting with a hardcoded value.
+
     publishToMavenCentral(automaticRelease = true)
-    signAllPublications()
+
+    // Sign only when a key is configured: the release workflow passes one, while JitPack and
+    // local publishToMavenLocal builds have none and would otherwise fail on the signing task.
+    // Maven Central still rejects an unsigned upload, so a release can't slip out unsigned.
+    if (providers.gradleProperty("signingInMemoryKey").isPresent) {
+        signAllPublications()
+    }
 
     pom {
         name = "schnorr256k1-kotlin"
-        description = "Pure-Kotlin BIP-340 Schnorr signatures on secp256k1 for Kotlin Multiplatform"
+        description =
+            "Pure-Kotlin BIP-340 Schnorr signatures, ECDH and key tweaks on secp256k1 for JVM, " +
+            "Android, iOS, macOS and Linux"
         inceptionYear = "2026"
         url = "https://github.com/vitorpamplona/libschnorr256k1-kotlin/"
         licenses {
@@ -190,13 +240,13 @@ mavenPublishing {
             developer {
                 id = "vitorpamplona"
                 name = "Vitor Pamplona"
-                url = "https://vitorpamplona.com"
+                url = "http://vitorpamplona.com"
+                email = "vitor@vitorpamplona.com"
             }
         }
         scm {
-            url = "https://github.com/vitorpamplona/libschnorr256k1-kotlin/"
-            connection = "scm:git:https://github.com/vitorpamplona/libschnorr256k1-kotlin.git"
-            developerConnection = "scm:git:ssh://git@github.com/vitorpamplona/libschnorr256k1-kotlin.git"
+            url = "https://github.com/vitorpamplona/libschnorr256k1-kotlin"
+            connection = "https://github.com/vitorpamplona/libschnorr256k1-kotlin.git"
         }
     }
 }

@@ -1,5 +1,10 @@
 # schnorr256k1-kotlin
 
+[![Last Version](https://img.shields.io/github/release/vitorpamplona/libschnorr256k1-kotlin.svg?maxAge=3600&label=Stable&labelColor=06599d&color=043b69)](https://github.com/vitorpamplona/libschnorr256k1-kotlin/releases/latest)
+[![Maven Central](https://img.shields.io/maven-central/v/com.vitorpamplona.schnorr256k1/schnorr256k1-kotlin?label=Maven%20Central&labelColor=27303D&color=0877d2)](https://central.sonatype.com/artifact/com.vitorpamplona.schnorr256k1/schnorr256k1-kotlin)
+[![CI](https://img.shields.io/github/actions/workflow/status/vitorpamplona/libschnorr256k1-kotlin/build.yml?labelColor=27303D)](https://github.com/vitorpamplona/libschnorr256k1-kotlin/actions/workflows/build.yml)
+[![License: MIT](https://img.shields.io/github/license/vitorpamplona/libschnorr256k1-kotlin?labelColor=27303D&color=0877d2)](LICENSE)
+
 BIP-340 Schnorr signatures and key operations on secp256k1, in pure Kotlin Multiplatform: no JNI,
 no native library to ship, no WASM. It has the same API as
 [libschnorr256k1-kmp](https://github.com/vitorpamplona/libschnorr256k1-kmp), the bindings to the C
@@ -9,6 +14,14 @@ between the two by changing a dependency and an import.
 The code started in [Quartz](https://github.com/vitorpamplona/quartz), Amethyst's Nostr library,
 and is extracted here so other projects can use it and so its speed can be compared with the C
 libraries in [libschnorr256k1-bench](https://github.com/vitorpamplona/libschnorr256k1-bench).
+
+## Install
+
+```kotlin
+dependencies {
+    implementation("com.vitorpamplona.schnorr256k1:schnorr256k1-kotlin:<version>")
+}
+```
 
 ## Platforms
 
@@ -69,10 +82,15 @@ in libschnorr256k1 (C), both reproduced against libsecp256k1:
 ## Build and test
 
 ```bash
-./gradlew :schnorr256k1-kotlin:jvmTest
-./gradlew :schnorr256k1-kotlin:linuxX64Test     # macOS: macosArm64Test, iosSimulatorArm64Test
+./gradlew installGitHook                          # pre-commit (spotless) and pre-push (the CI checks)
+./gradlew :schnorr256k1-kotlin:jvmTest            # also cross-validates against libsecp256k1 and libschnorr256k1
+./gradlew :schnorr256k1-kotlin:linuxX64Test       # macOS: macosArm64Test, iosSimulatorArm64Test
+./gradlew :schnorr256k1-kotlin:checkKotlinAbi     # the public API matches schnorr256k1-kotlin/api/
 ./gradlew spotlessApply
 ```
+
+Releasing: bump `VERSION_NAME` in `gradle.properties` and push a `v<version>` tag
+(`.github/workflows/create-release.yml`).
 
 ## License
 

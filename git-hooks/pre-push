@@ -1,0 +1,32 @@
+#!/bin/bash
+
+GREEN='\033[0;32m'
+NO_COLOR='\033[0m'
+
+echo "*********************************************************"
+echo "Running git pre-push hook."
+echo "*********************************************************"
+echo ""
+echo "Java Version: "
+echo "$JAVA_HOME"
+java -version
+echo "Running test... "
+
+# The same checks as CI's build job. The Apple tests need a Mac; CI's test-apple job runs them.
+# The metadata compiles catch a missing opt-in in the shared native source sets (the mulhi
+# cinterop's @GCUnsafeCall) and Apple-only drift, on Linux.
+./gradlew spotlessCheck :schnorr256k1-kotlin:checkKotlinAbi :schnorr256k1-kotlin:jvmTest :schnorr256k1-kotlin:testAndroidHostTest :schnorr256k1-kotlin:linuxX64Test :schnorr256k1-kotlin:compileCommonMainKotlinMetadata :schnorr256k1-kotlin:compileNativeMainKotlinMetadata :schnorr256k1-kotlin:compileAppleMainKotlinMetadata
+
+status=$?
+
+if [ "$status" = 0 ] ; then
+    echo "All test passed."
+    exit 0
+else
+    echo "*********************************************************"
+    echo 1>&2 "Formatting or tests failed"
+    printf "Run ${GREEN}./gradlew spotlessApply :schnorr256k1-kotlin:checkKotlinAbi :schnorr256k1-kotlin:jvmTest :schnorr256k1-kotlin:testAndroidHostTest :schnorr256k1-kotlin:linuxX64Test${NO_COLOR}\n"
+    printf "and ${GREEN}./gradlew :schnorr256k1-kotlin:compileNativeMainKotlinMetadata :schnorr256k1-kotlin:compileAppleMainKotlinMetadata${NO_COLOR}, and fix what fails before pushing...\n"
+    echo "*********************************************************"
+    exit 1
+fi

@@ -35,21 +35,21 @@ import com.vitorpamplona.crypto.sha2.sha256 as cryptoSha256
  * Variable time: running time depends on the secret key and nonce (wNAF scalar multiplication,
  * safegcd inversion). Do not use where timing side channels matter.
  */
-object Schnorr256k1 {
+public object Schnorr256k1 {
     /** No native library to load; kept for API parity. Touching the object builds the tables. */
-    fun ensureLoaded() {}
+    public fun ensureLoaded() {}
 
     /** 65-byte uncompressed public key (`04 || x || y`) for a 32-byte secret key. */
-    fun pubkeyCreate(seckey: ByteArray): ByteArray? = orNull { Secp256k1.pubkeyCreate(seckey) }
+    public fun pubkeyCreate(seckey: ByteArray): ByteArray? = orNull { Secp256k1.pubkeyCreate(seckey) }
 
     /** 33-byte compressed public key from a 65-byte (or 33-byte) public key. */
-    fun pubkeyCompress(pubkey: ByteArray): ByteArray? = orNull { Secp256k1.pubKeyCompress(pubkey) }
+    public fun pubkeyCompress(pubkey: ByteArray): ByteArray? = orNull { Secp256k1.pubKeyCompress(pubkey) }
 
     /** True if [seckey] is 32 bytes and in [1, n). */
-    fun seckeyVerify(seckey: ByteArray): Boolean = Secp256k1.secKeyVerify(seckey)
+    public fun seckeyVerify(seckey: ByteArray): Boolean = Secp256k1.secKeyVerify(seckey)
 
     /** BIP-340 signature of [msg] (any length). Derives the public key; see [schnorrSignXOnly]. */
-    fun schnorrSign(
+    public fun schnorrSign(
         msg: ByteArray,
         seckey: ByteArray,
         auxrand: ByteArray? = null,
@@ -61,7 +61,7 @@ object Schnorr256k1 {
      * [schnorrSignWithPubKey] with the 33-byte compressed key for the fast path. Returns null if
      * [xonlyPub] is not [seckey]'s public key.
      */
-    fun schnorrSignXOnly(
+    public fun schnorrSignXOnly(
         msg: ByteArray,
         seckey: ByteArray,
         xonlyPub: ByteArray,
@@ -73,7 +73,7 @@ object Schnorr256k1 {
      * skips deriving it, about half the work of [schnorrSign]. Not in libschnorr256k1-kmp's API.
      * The caller must pass [seckey]'s own public key; a wrong one gives an invalid signature.
      */
-    fun schnorrSignWithPubKey(
+    public fun schnorrSignWithPubKey(
         msg: ByteArray,
         seckey: ByteArray,
         compressedPub: ByteArray,
@@ -81,48 +81,48 @@ object Schnorr256k1 {
     ): ByteArray? = orNull { Secp256k1.signSchnorrWithPubKey(msg, seckey, compressedPub, auxrand) }
 
     /** Full BIP-340 verification against a 32-byte x-only public key. */
-    fun schnorrVerify(
+    public fun schnorrVerify(
         sig: ByteArray,
         msg: ByteArray,
         pub: ByteArray,
     ): Boolean = orFalse { Secp256k1.verifySchnorr(sig, msg, pub) }
 
     /** Verification without BIP-340's y-parity check of R (see Secp256k1.verifySchnorrFast). */
-    fun schnorrVerifyFast(
+    public fun schnorrVerifyFast(
         sig: ByteArray,
         msg: ByteArray,
         pub: ByteArray,
     ): Boolean = orFalse { Secp256k1.verifySchnorrFast(sig, msg, pub) }
 
     /** True if every signature in [sigs] is valid for the matching message under [pub]. */
-    fun schnorrVerifyBatch(
+    public fun schnorrVerifyBatch(
         pub: ByteArray,
         sigs: List<ByteArray>,
         msgs: List<ByteArray>,
     ): Boolean = sigs.size == msgs.size && orFalse { Secp256k1.verifySchnorrBatch(pub, sigs, msgs) }
 
     /** `(seckey + tweak) mod n`, or null if the result is zero or an input is invalid. */
-    fun privkeyTweakAdd(
+    public fun privkeyTweakAdd(
         seckey: ByteArray,
         tweak: ByteArray,
     ): ByteArray? = orNull { Secp256k1.privKeyTweakAdd(seckey, tweak) }
 
     /** `pubkey * tweak`, in the input's format (33 or 65 bytes). */
-    fun pubkeyTweakMul(
+    public fun pubkeyTweakMul(
         pubkey: ByteArray,
         tweak: ByteArray,
     ): ByteArray? = orNull { Secp256k1.pubKeyTweakMul(pubkey, tweak) }
 
     /** 32-byte x coordinate of `scalar * P`, P lifted from the x-only [xonlyPub] (NIP-04/NIP-44). */
-    fun ecdhXOnly(
+    public fun ecdhXOnly(
         xonlyPub: ByteArray,
         scalar: ByteArray,
     ): ByteArray? = orNull { Secp256k1.ecdhXOnly(xonlyPub, scalar) }
 
-    fun sha256(data: ByteArray): ByteArray? = cryptoSha256(data)
+    public fun sha256(data: ByteArray): ByteArray? = cryptoSha256(data)
 
     /** BIP-340 tagged hash: `sha256(sha256(tag) || sha256(tag) || msg)`. */
-    fun taggedHash(
+    public fun taggedHash(
         tag: String,
         msg: ByteArray,
     ): ByteArray? = Secp256k1.taggedHash(tag, msg)

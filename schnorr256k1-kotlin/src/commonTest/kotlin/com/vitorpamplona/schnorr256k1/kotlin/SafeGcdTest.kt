@@ -31,8 +31,7 @@ class SafeGcdTest {
         b: Fe4,
     ) = a.l0 == b.l0 && a.l1 == b.l1 && a.l2 == b.l2 && a.l3 == b.l3
 
-    private fun str(a: Fe4) =
-        "[${a.l3.toULong().toString(16)}, ${a.l2.toULong().toString(16)}, ${a.l1.toULong().toString(16)}, ${a.l0.toULong().toString(16)}]"
+    private fun str(a: Fe4) = "[${a.l3.toULong().toString(16)}, ${a.l2.toULong().toString(16)}, ${a.l1.toULong().toString(16)}, ${a.l0.toULong().toString(16)}]"
 
     private fun edges(m: Fe4): List<Fe4> {
         val out = mutableListOf<Fe4>()
