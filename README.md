@@ -63,10 +63,11 @@ caches publish their entries with release/acquire ordering.
 - **Variable time.** Scalar multiplication (wNAF) and inversion (safegcd) take time that depends
   on their inputs, secrets included. Do not use it where a timing side channel matters.
   `docs/2026-11-07-secp256k1-constant-time-audit.md` lists what constant time would need.
-- **Batch verification is not randomized yet.** `schnorrVerifyBatch` sums the signatures without
-  BIP-340's random coefficients, so invalid signatures crafted to cancel each other pass (from two
-  valid signatures by one key, `s1 + d` and `s2 - d`). It cannot forge a signature for new
-  content, but use `schnorrVerify` where every signature must be valid on its own.
+- **Batch verification costs about 60% of a single verify per signature.** `schnorrVerifyBatch`
+  is BIP-340's batch verification: each signature gets a 128-bit weight derived from a hash of the
+  whole batch, so invalid signatures cannot be made to cancel. The weights cost a 128-bit scalar
+  multiplication per signature. Until 2026-11-07 the batch summed the signatures without weights,
+  and two invalid signatures crafted to cancel (`s1 + d`, `s2 - d`) passed.
 
 ## Differences from libschnorr256k1-kmp found so far
 
