@@ -1,0 +1,22 @@
+public final class com/vitorpamplona/schnorr256k1/kotlin/Schnorr256k1 {
+	public static final field INSTANCE Lcom/vitorpamplona/schnorr256k1/kotlin/Schnorr256k1;
+	public final fun ecdhXOnly ([B[B)[B
+	public final fun ensureLoaded ()V
+	public final fun privkeyTweakAdd ([B[B)[B
+	public final fun pubkeyCompress ([B)[B
+	public final fun pubkeyCreate ([B)[B
+	public final fun pubkeyTweakMul ([B[B)[B
+	public final fun schnorrSign ([B[B[B)[B
+	public static synthetic fun schnorrSign$default (Lcom/vitorpamplona/schnorr256k1/kotlin/Schnorr256k1;[B[B[BILjava/lang/Object;)[B
+	public final fun schnorrSignWithPubKey ([B[B[B[B)[B
+	public static synthetic fun schnorrSignWithPubKey$default (Lcom/vitorpamplona/schnorr256k1/kotlin/Schnorr256k1;[B[B[B[BILjava/lang/Object;)[B
+	public final fun schnorrSignXOnly ([B[B[B[B)[B
+	public static synthetic fun schnorrSignXOnly$default (Lcom/vitorpamplona/schnorr256k1/kotlin/Schnorr256k1;[B[B[B[BILjava/lang/Object;)[B
+	public final fun schnorrVerify ([B[B[B)Z
+	public final fun schnorrVerifyBatch ([BLjava/util/List;Ljava/util/List;)Z
+	public final fun schnorrVerifyFast ([B[B[B)Z
+	public final fun seckeyVerify ([B)Z
+	public final fun sha256 ([B)[B
+	public final fun taggedHash (Ljava/lang/String;[B)[B
+}
+

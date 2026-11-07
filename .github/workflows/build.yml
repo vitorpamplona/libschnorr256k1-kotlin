@@ -1,0 +1,128 @@
+name: Test/Build
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'zulu'
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Cached Konan
+        uses: actions/cache@v6
+        with:
+          path: ~/.konan
+          key: ${{ runner.os }}-konan-${{ hashFiles('**/*.gradle*') }}-${{ hashFiles('**/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: ${{ runner.os }}-konan-
+
+      - name: Linter (gradle)
+        run: ./gradlew spotlessCheck
+
+      # The public API must match schnorr256k1-kotlin/api/: a change to it is deliberate
+      # (updateKotlinAbi) and visible in review, and a breaking one needs a major version.
+      - name: Check public API
+        run: ./gradlew :schnorr256k1-kotlin:checkKotlinAbi
+
+      # The JVM tests also cross-validate against libsecp256k1 (ACINQ) and libschnorr256k1.
+      - name: Check JVM and Android (host)
+        run: ./gradlew :schnorr256k1-kotlin:jvmTest :schnorr256k1-kotlin:testAndroidHostTest
+
+      # The native code paths (the mulhi cinterop's hardware multiply-high), on a Linux binary.
+      - name: Check Linux native
+        run: ./gradlew :schnorr256k1-kotlin:linuxX64Test
+
+      # The shared native source sets compile as metadata: a missing @GCUnsafeCall opt-in or
+      # Apple-only drift fails here in minutes instead of in the macOS job.
+      - name: Check common, native and Apple code compiles
+        run: ./gradlew :schnorr256k1-kotlin:compileCommonMainKotlinMetadata :schnorr256k1-kotlin:compileNativeMainKotlinMetadata :schnorr256k1-kotlin:compileAppleMainKotlinMetadata
+
+      - name: Build (gradle)
+        run: ./gradlew assemble
+
+  # commonTest on ART, once per Android multiply-high path, which the host tests' desktop JVM
+  # doesn't run: software at 26 (minSdk), Math.multiplyHigh plus the unsigned correction at 31,
+  # Math.unsignedMultiplyHigh at 35.
+  test-android:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [26, 31, 35]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'zulu'
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Device tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          target: default
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: ./gradlew :schnorr256k1-kotlin:connectedAndroidDeviceTest
+
+  # Apple test binaries link and run only on macOS: the one place the mulhi cinterop is built
+  # and run for iOS and macOS.
+  test-apple:
+    needs: build
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'zulu'
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Cached Konan
+        uses: actions/cache@v6
+        with:
+          path: ~/.konan
+          key: ${{ runner.os }}-konan-${{ hashFiles('**/*.gradle*') }}-${{ hashFiles('**/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: ${{ runner.os }}-konan-
+
+      # iosArm64 has no simulator to run on; compiling its tests catches device-only drift.
+      - name: Check iOS and macOS
+        run: ./gradlew :schnorr256k1-kotlin:iosSimulatorArm64Test :schnorr256k1-kotlin:macosArm64Test :schnorr256k1-kotlin:compileTestKotlinIosArm64

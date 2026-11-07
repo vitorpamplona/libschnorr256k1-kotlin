@@ -1,0 +1,25 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, linuxX64, macosArm64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <libschnorr256k1-kotlin:schnorr256k1-kotlin>
+final object com.vitorpamplona.schnorr256k1.kotlin/Schnorr256k1 { // com.vitorpamplona.schnorr256k1.kotlin/Schnorr256k1|null[0]
+    final fun ecdhXOnly(kotlin/ByteArray, kotlin/ByteArray): kotlin/ByteArray? // com.vitorpamplona.schnorr256k1.kotlin/Schnorr256k1.ecdhXOnly|ecdhXOnly(kotlin.ByteArray;kotlin.ByteArray){}[0]
+    final fun ensureLoaded() // com.vitorpamplona.schnorr256k1.kotlin/Schnorr256k1.ensureLoaded|ensureLoaded(){}[0]
+    final fun privkeyTweakAdd(kotlin/ByteArray, kotlin/ByteArray): kotlin/ByteArray? // com.vitorpamplona.schnorr256k1.kotlin/Schnorr256k1.privkeyTweakAdd|privkeyTweakAdd(kotlin.ByteArray;kotlin.ByteArray){}[0]
+    final fun pubkeyCompress(kotlin/ByteArray): kotlin/ByteArray? // com.vitorpamplona.schnorr256k1.kotlin/Schnorr256k1.pubkeyCompress|pubkeyCompress(kotlin.ByteArray){}[0]
+    final fun pubkeyCreate(kotlin/ByteArray): kotlin/ByteArray? // com.vitorpamplona.schnorr256k1.kotlin/Schnorr256k1.pubkeyCreate|pubkeyCreate(kotlin.ByteArray){}[0]
+    final fun pubkeyTweakMul(kotlin/ByteArray, kotlin/ByteArray): kotlin/ByteArray? // com.vitorpamplona.schnorr256k1.kotlin/Schnorr256k1.pubkeyTweakMul|pubkeyTweakMul(kotlin.ByteArray;kotlin.ByteArray){}[0]
+    final fun schnorrSign(kotlin/ByteArray, kotlin/ByteArray, kotlin/ByteArray? = ...): kotlin/ByteArray? // com.vitorpamplona.schnorr256k1.kotlin/Schnorr256k1.schnorrSign|schnorrSign(kotlin.ByteArray;kotlin.ByteArray;kotlin.ByteArray?){}[0]
+    final fun schnorrSignWithPubKey(kotlin/ByteArray, kotlin/ByteArray, kotlin/ByteArray, kotlin/ByteArray? = ...): kotlin/ByteArray? // com.vitorpamplona.schnorr256k1.kotlin/Schnorr256k1.schnorrSignWithPubKey|schnorrSignWithPubKey(kotlin.ByteArray;kotlin.ByteArray;kotlin.ByteArray;kotlin.ByteArray?){}[0]
+    final fun schnorrSignXOnly(kotlin/ByteArray, kotlin/ByteArray, kotlin/ByteArray, kotlin/ByteArray? = ...): kotlin/ByteArray? // com.vitorpamplona.schnorr256k1.kotlin/Schnorr256k1.schnorrSignXOnly|schnorrSignXOnly(kotlin.ByteArray;kotlin.ByteArray;kotlin.ByteArray;kotlin.ByteArray?){}[0]
+    final fun schnorrVerify(kotlin/ByteArray, kotlin/ByteArray, kotlin/ByteArray): kotlin/Boolean // com.vitorpamplona.schnorr256k1.kotlin/Schnorr256k1.schnorrVerify|schnorrVerify(kotlin.ByteArray;kotlin.ByteArray;kotlin.ByteArray){}[0]
+    final fun schnorrVerifyBatch(kotlin/ByteArray, kotlin.collections/List<kotlin/ByteArray>, kotlin.collections/List<kotlin/ByteArray>): kotlin/Boolean // com.vitorpamplona.schnorr256k1.kotlin/Schnorr256k1.schnorrVerifyBatch|schnorrVerifyBatch(kotlin.ByteArray;kotlin.collections.List<kotlin.ByteArray>;kotlin.collections.List<kotlin.ByteArray>){}[0]
+    final fun schnorrVerifyFast(kotlin/ByteArray, kotlin/ByteArray, kotlin/ByteArray): kotlin/Boolean // com.vitorpamplona.schnorr256k1.kotlin/Schnorr256k1.schnorrVerifyFast|schnorrVerifyFast(kotlin.ByteArray;kotlin.ByteArray;kotlin.ByteArray){}[0]
+    final fun seckeyVerify(kotlin/ByteArray): kotlin/Boolean // com.vitorpamplona.schnorr256k1.kotlin/Schnorr256k1.seckeyVerify|seckeyVerify(kotlin.ByteArray){}[0]
+    final fun sha256(kotlin/ByteArray): kotlin/ByteArray? // com.vitorpamplona.schnorr256k1.kotlin/Schnorr256k1.sha256|sha256(kotlin.ByteArray){}[0]
+    final fun taggedHash(kotlin/String, kotlin/ByteArray): kotlin/ByteArray? // com.vitorpamplona.schnorr256k1.kotlin/Schnorr256k1.taggedHash|taggedHash(kotlin.String;kotlin.ByteArray){}[0]
+}
