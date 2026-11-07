@@ -1,0 +1,61 @@
+name: Test/Build
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  jvm-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6.1.0
+        with:
+          distribution: 'temurin'
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+      # Formatting; the metadata compiles (commonMain against what every target shares, and the
+      # shared native source sets with their @GCUnsafeCall opt-in); the Android library compile
+      # (ubuntu-latest ships an Android SDK); JVM tests, which cross-validate against
+      # libsecp256k1 (ACINQ) and libschnorr256k1; Linux Native tests.
+      - name: Check, compile and test
+        run: |
+          ./gradlew spotlessCheck \
+            :schnorr256k1-kotlin:compileCommonMainKotlinMetadata \
+            :schnorr256k1-kotlin:compileNativeMainKotlinMetadata \
+            :schnorr256k1-kotlin:compileAndroidMain \
+            :schnorr256k1-kotlin:jvmTest \
+            :schnorr256k1-kotlin:linuxX64Test
+
+  apple:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6.1.0
+        with:
+          distribution: 'temurin'
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+      # The mulhi cinterop (Apple klibs cannot be built with a cinterop on a Linux host).
+      - name: Apple tests
+        run: |
+          ./gradlew -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8" \
+            :schnorr256k1-kotlin:compileAppleMainKotlinMetadata \
+            :schnorr256k1-kotlin:macosArm64Test \
+            :schnorr256k1-kotlin:iosSimulatorArm64Test
