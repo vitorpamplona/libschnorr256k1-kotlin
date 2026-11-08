@@ -27,7 +27,7 @@ dependencies {
 
 | Platform | Notes |
 |---|---|
-| JVM (17+) | `Math.unsignedMultiplyHigh` for the 64x64 high product |
+| JVM (21+) | `Math.unsignedMultiplyHigh` for the 64x64 high product |
 | Android (minSdk 26) | `Math.multiplyHigh` from API 31, `unsignedMultiplyHigh` from 35, a software multiply below |
 | iOS, macOS (arm64), Linux (x86-64) | Kotlin/Native; the high product is one `umulh`/`mul` through a tiny inlined C helper (`src/nativeInterop/cinterop/mulhi.def`) |
 
