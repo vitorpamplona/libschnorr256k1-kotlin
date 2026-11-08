@@ -351,9 +351,11 @@ internal object ECPoint {
         FieldP.mul(t[2], qx, t[0], w) // U₂ = qx·Z₁²  (U₁ = X₁ since Z₂=1)
         FieldP.mul(t[3], qy, t[1], w) // S₂ = qy·Z₁³  (S₁ = Y₁ since Z₂=1)
         FieldP.sub(t[4], t[2], p.x) // H = U₂ - U₁
+        FieldP.reduceSelf(t[4]) // sub of unreduced inputs can leave p for 0
 
         if (t[4].isZero()) {
             FieldP.sub(t[5], t[3], p.y)
+            FieldP.reduceSelf(t[5])
             if (t[5].isZero()) doublePoint(out, p, s) else out.setInfinity()
             return
         }
@@ -419,7 +421,12 @@ internal object ECPoint {
         FieldP.mul(t[5], p.z, t[0], w) // Z₁³
         FieldP.mul(t[5], q.y, t[5], w) // S₂ = Y₂·Z₁³
 
+        // Compared reduced: equal points can come out of mul as x and x + p.
+        FieldP.reduceSelf(t[2])
+        FieldP.reduceSelf(t[3])
         if (U256.cmp(t[2], t[3]) == 0) {
+            FieldP.reduceSelf(t[4])
+            FieldP.reduceSelf(t[5])
             if (U256.cmp(t[4], t[5]) == 0) doublePoint(out, p, s) else out.setInfinity()
             return
         }
@@ -932,6 +939,10 @@ internal object ECPoint {
         FieldP.mul(zInv3, zInv2, zInv)
         FieldP.mul(outX, p.x, zInv2)
         FieldP.mul(outY, p.y, zInv3)
+        // Canonical (< p): mul keeps results below 2^256 only, and these are serialized and
+        // their parity read (x + p and y + p would encode wrong bytes and flip the parity).
+        FieldP.reduceSelf(outX)
+        FieldP.reduceSelf(outY)
         return true
     }
 
@@ -948,6 +959,8 @@ internal object ECPoint {
         FieldP.mul(s.zInv3, s.zInv2, s.zInv)
         FieldP.mul(outX, p.x, s.zInv2)
         FieldP.mul(outY, p.y, s.zInv3)
+        FieldP.reduceSelf(outX) // canonical, as above
+        FieldP.reduceSelf(outY)
         return true
     }
 
@@ -961,6 +974,7 @@ internal object ECPoint {
         FieldP.inv(s.zInv, p.z)
         FieldP.sqr(s.zInv2, s.zInv)
         FieldP.mul(outX, p.x, s.zInv2)
+        FieldP.reduceSelf(outX) // canonical, as in toAffine
         return true
     }
 }

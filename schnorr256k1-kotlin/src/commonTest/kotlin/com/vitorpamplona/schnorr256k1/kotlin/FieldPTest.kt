@@ -397,4 +397,86 @@ class FieldPTest {
         val back = FieldP.mul(ref, bInv)
         assertEquals(toHex(reduced(lazyBig)), toHex(reduced(back)))
     }
+
+    /**
+     * x³ + 7 is a square mod p for exactly these x in 1..100 (Legendre symbol, computed
+     * independently). sqrt used to reject every one: mul leaves results below 2^256, not below p,
+     * and for an input below 2^256 - p the check out² == a compared a + p with a.
+     */
+    private val smallXOnCurve =
+        setOf(
+            1,
+            2,
+            3,
+            4,
+            6,
+            8,
+            12,
+            13,
+            14,
+            16,
+            20,
+            22,
+            25,
+            27,
+            32,
+            33,
+            38,
+            39,
+            43,
+            44,
+            45,
+            47,
+            48,
+            52,
+            56,
+            57,
+            59,
+            61,
+            63,
+            64,
+            66,
+            69,
+            73,
+            74,
+            76,
+            77,
+            81,
+            82,
+            83,
+            85,
+            88,
+            89,
+            90,
+            91,
+            95,
+            97,
+        )
+
+    @Test
+    fun sqrtOfSmallValues() {
+        for (x in 1..100) {
+            val rhs = Fe4(x.toLong() * x * x + 7, 0, 0, 0)
+            val r = FieldP.sqrt(rhs)
+            assertEquals(x in smallXOnCurve, r != null, "sqrt(x³ + 7) for x = $x")
+            if (r != null) {
+                assertTrue(U256.cmp(r, FieldP.P) < 0, "root not canonical for x = $x")
+                val sq = FieldP.sqr(r)
+                FieldP.reduceSelf(sq)
+                assertEquals(toHex(rhs), toHex(sq), "root does not square back for x = $x")
+            }
+        }
+    }
+
+    @Test
+    fun smallXPublicKeysParse() {
+        for (x in 1..100) {
+            val key =
+                ByteArray(33).also {
+                    it[0] = 2
+                    it[32] = x.toByte()
+                }
+            assertEquals(x in smallXOnCurve, KeyCodec.parsePublicKey(key, Fe4(), Fe4()), "02 || $x")
+        }
+    }
 }

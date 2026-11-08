@@ -361,10 +361,14 @@ internal object FieldP {
         sqrN(out, out, 6, w)
         mul(out, out, x2, w)
         sqrN(out, out, 2, w)
+        reduceSelf(out) // a canonical root: callers serialize it and read its parity
 
         // Verify: check that out² == a (mod p)
         // Reuse cs[0], cs[1] as scratch since we're done with the chain
+        // Both sides reduced: mul keeps results below 2^256, not below p, so for a < 2^256 - p
+        // (x³ + 7 for a small x, say) out² can come back as a + p.
         mul(cs[0], out, out, w) // cs[0] = out²
+        reduceSelf(cs[0])
         cs[1].copyFrom(a)
         reduceSelf(cs[1]) // cs[1] = a reduced
         return U256.cmp(cs[0], cs[1]) == 0
