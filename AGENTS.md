@@ -64,7 +64,7 @@ the C libraries.
   Apple targets run, and releases publish from macOS.
 - Android's multiply-high paths run only on a device: CI's `test-android` job runs commonTest on
   emulators at API 26, 31 and 35, one per path.
-- JVM target is 17: Quartz targets 17, and a dependency can't need a newer JVM than its user.
+- JVM target is 21: Quartz targets 21, and a dependency can't need a newer JVM than its user.
 - Before pushing: `./gradlew spotlessApply`, then
   `./gradlew :schnorr256k1-kotlin:checkKotlinAbi :schnorr256k1-kotlin:jvmTest :schnorr256k1-kotlin:testAndroidHostTest :schnorr256k1-kotlin:linuxX64Test :schnorr256k1-kotlin:compileCommonMainKotlinMetadata :schnorr256k1-kotlin:compileNativeMainKotlinMetadata :schnorr256k1-kotlin:compileAppleMainKotlinMetadata`
   (the pre-push hook runs these; `./gradlew installGitHook` installs it).

@@ -12,6 +12,9 @@ plugins {
     alias(libs.plugins.vanniktech.mavenPublish)
 }
 
+// Every Kotlin/Native target except on JitPack, which builds JVM and Android only (see above).
+val nativeTargets = providers.environmentVariable("JITPACK").orNull != "true"
+
 kotlin {
     // A library: every public declaration is a choice, and the ABI dump in api/ records it,
     // so a breaking change shows up in review (and in a major version) instead of by accident.
@@ -24,11 +27,11 @@ kotlin {
         freeCompilerArgs.add("-Xexpect-actual-classes")
     }
 
-    // JVM 17: Quartz, the main consumer, targets 17, and a dependency can't need a newer JVM
-    // than the library that uses it.
+    // JVM 21, as Quartz, the main consumer: a dependency can't need a newer JVM than the library
+    // that uses it. 21 also gives Math.unsignedMultiplyHigh (Java 18+) on every supported JVM.
     jvm {
         compilerOptions {
-            jvmTarget.set(JvmTarget.JVM_17)
+            jvmTarget.set(JvmTarget.JVM_21)
         }
     }
 
@@ -44,7 +47,7 @@ kotlin {
                 .toInt()
 
         compilerOptions {
-            jvmTarget.set(JvmTarget.JVM_17)
+            jvmTarget.set(JvmTarget.JVM_21)
         }
 
         withHostTest {}
@@ -60,10 +63,14 @@ kotlin {
         }
     }
 
-    iosArm64()
-    iosSimulatorArm64()
-    macosArm64()
-    linuxX64()
+    // JitPack (JITPACK=true) builds JVM and Android only: its Linux builders cannot build the Apple
+    // cinterop, and its default image's glibc is too old for Kotlin/Native's clang (jitpack.yml).
+    if (nativeTargets) {
+        iosArm64()
+        iosSimulatorArm64()
+        macosArm64()
+        linuxX64()
+    }
 
     // Hardware 64x64->128 multiply-high on Kotlin/Native (MultiplyHigh.native.kt): C helpers in
     // src/nativeInterop/cinterop/mulhi.def, bound with @GCUnsafeCall. That annotation is a
@@ -151,55 +158,57 @@ kotlin {
             }
         }
 
-        val nativeMain =
-            create("nativeMain") {
-                dependsOn(commonMain.get())
+        if (nativeTargets) {
+            val nativeMain =
+                create("nativeMain") {
+                    dependsOn(commonMain.get())
+                }
+
+            val nativeTest =
+                create("nativeTest") {
+                    dependsOn(commonTest.get())
+                }
+
+            val appleMain =
+                create("appleMain") {
+                    dependsOn(nativeMain)
+                }
+
+            val appleTest =
+                create("appleTest") {
+                    dependsOn(nativeTest)
+                }
+
+            listOf("iosArm64", "iosSimulatorArm64", "macosArm64").forEach {
+                getByName("${it}Main").dependsOn(appleMain)
+                getByName("${it}Test").dependsOn(appleTest)
             }
 
-        val nativeTest =
-            create("nativeTest") {
-                dependsOn(commonTest.get())
-            }
+            val linuxMain =
+                create("linuxMain") {
+                    dependsOn(nativeMain)
+                }
 
-        val appleMain =
-            create("appleMain") {
-                dependsOn(nativeMain)
-            }
+            val linuxTest =
+                create("linuxTest") {
+                    dependsOn(nativeTest)
+                }
 
-        val appleTest =
-            create("appleTest") {
-                dependsOn(nativeTest)
-            }
+            getByName("linuxX64Main").dependsOn(linuxMain)
+            getByName("linuxX64Test").dependsOn(linuxTest)
 
-        listOf("iosArm64", "iosSimulatorArm64", "macosArm64").forEach {
-            getByName("${it}Main").dependsOn(appleMain)
-            getByName("${it}Test").dependsOn(appleTest)
+            // MultiplyHigh.native.kt's @GCUnsafeCall, for the shared metadata compiles. Every source
+            // set that depends on nativeMain must declare the same opt-in.
+            listOf(
+                nativeMain,
+                appleMain,
+                linuxMain,
+                getByName("iosArm64Main"),
+                getByName("iosSimulatorArm64Main"),
+                getByName("macosArm64Main"),
+                getByName("linuxX64Main"),
+            ).forEach { it.languageSettings.optIn("kotlin.native.internal.InternalForKotlinNative") }
         }
-
-        val linuxMain =
-            create("linuxMain") {
-                dependsOn(nativeMain)
-            }
-
-        val linuxTest =
-            create("linuxTest") {
-                dependsOn(nativeTest)
-            }
-
-        getByName("linuxX64Main").dependsOn(linuxMain)
-        getByName("linuxX64Test").dependsOn(linuxTest)
-
-        // MultiplyHigh.native.kt's @GCUnsafeCall, for the shared metadata compiles. Every source
-        // set that depends on nativeMain must declare the same opt-in.
-        listOf(
-            nativeMain,
-            appleMain,
-            linuxMain,
-            getByName("iosArm64Main"),
-            getByName("iosSimulatorArm64Main"),
-            getByName("macosArm64Main"),
-            getByName("linuxX64Main"),
-        ).forEach { it.languageSettings.optIn("kotlin.native.internal.InternalForKotlinNative") }
     }
 }
 
