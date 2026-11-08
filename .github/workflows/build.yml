@@ -126,3 +126,9 @@ jobs:
       # iosArm64 has no simulator to run on; compiling its tests catches device-only drift.
       - name: Check iOS and macOS
         run: ./gradlew :schnorr256k1-kotlin:iosSimulatorArm64Test :schnorr256k1-kotlin:macosArm64Test :schnorr256k1-kotlin:compileTestKotlinIosArm64
+
+      # The JVM suite on arm64 too: its cross-checks call libsecp256k1 and libschnorr256k1 through
+      # their native arm64 builds, which answer differently from x86-64 on some input. The 1.0.0
+      # release run was the first to see that (create-release.yml runs these on macOS).
+      - name: JVM tests on macOS arm64
+        run: ./gradlew :schnorr256k1-kotlin:jvmTest
