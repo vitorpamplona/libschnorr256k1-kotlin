@@ -108,26 +108,62 @@ class Schnorr256k1ApiParityTest {
         assertFalse(k.schnorrVerifyBatch(xonly, sigs, msgs.dropLast(1)), "size mismatch is false, not an exception")
     }
 
+    /** libsecp256k1's answer (ACINQ throws on invalid input), or null. */
+    private fun ref(f: () -> ByteArray): ByteArray? =
+        try {
+            f()
+        } catch (_: Exception) {
+            null
+        }
+
+    /**
+     * On invalid input the referee is libsecp256k1, not the C library: libschnorr256k1 answers
+     * some of these differently on x86-64 and arm64 (it has an ARM64 assembly field multiply), and
+     * where it differs from libsecp256k1 it is the one that is wrong. Kotlin must match
+     * libsecp256k1; a difference from C is printed so the platform logs show it.
+     */
+    private fun refereed(
+        what: String,
+        kotlin: ByteArray?,
+        cLib: ByteArray?,
+        libsecp: ByteArray?,
+    ) {
+        same("$what vs libsecp256k1", kotlin, libsecp)
+        val agree = if (kotlin == null || cLib == null) kotlin == cLib else kotlin.contentEquals(cLib)
+        if (!agree) println("C DIFFERS ($what, ${System.getProperty("os.arch")}): kotlin=${kotlin?.toHexKey()} c=${cLib?.toHexKey()}")
+    }
+
     @Test
-    fun invalidInputsMatch() {
+    fun invalidInputsMatchLibsecp256k1() {
         val zero = ByteArray(32)
         val n = "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141".hexToByteArray()
+        val nPlus1 = "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364142".hexToByteArray()
         val short = ByteArray(31) { 1 }
         val sk = seckey()
         val pub = c.pubkeyCreate(sk)!!
+        val x = pub.copyOfRange(1, 33)
         val notOnCurve = ByteArray(32) { 0xFF.toByte() } // x >= p
-        for (bad in listOf(zero, n, short)) {
-            assertEquals(c.seckeyVerify(bad), k.seckeyVerify(bad), "seckeyVerify")
-            same("pubkeyCreate(bad)", k.pubkeyCreate(bad), c.pubkeyCreate(bad))
-            same("privkeyTweakAdd(bad tweak)", k.privkeyTweakAdd(sk, bad), c.privkeyTweakAdd(sk, bad))
-            same("pubkeyTweakMul(bad tweak)", k.pubkeyTweakMul(pub, bad), c.pubkeyTweakMul(pub, bad))
-            same("ecdhXOnly(bad scalar)", k.ecdhXOnly(pub.copyOfRange(1, 33), bad), c.ecdhXOnly(pub.copyOfRange(1, 33), bad))
+        for (bad in listOf(zero, n, nPlus1, short)) {
+            val tag = bad.toHexKey().take(8) + "…/" + bad.size
+            assertEquals(acinq.secKeyVerify(bad), k.seckeyVerify(bad), "seckeyVerify($tag)")
+            refereed("pubkeyCreate($tag)", k.pubkeyCreate(bad), c.pubkeyCreate(bad), ref { acinq.pubkeyCreate(bad) })
+            refereed("privkeyTweakAdd(sk, $tag)", k.privkeyTweakAdd(sk, bad), c.privkeyTweakAdd(sk, bad), ref { acinq.privKeyTweakAdd(sk, bad) })
+            refereed("privkeyTweakAdd($tag, sk)", k.privkeyTweakAdd(bad, sk), c.privkeyTweakAdd(bad, sk), ref { acinq.privKeyTweakAdd(bad, sk) })
+            refereed("pubkeyTweakMul(pub, $tag)", k.pubkeyTweakMul(pub, bad), c.pubkeyTweakMul(pub, bad), ref { acinq.pubKeyTweakMul(pub, bad) })
+            refereed(
+                "ecdhXOnly(x, $tag)",
+                k.ecdhXOnly(x, bad),
+                c.ecdhXOnly(x, bad),
+                ref { acinq.pubKeyTweakMul(byteArrayOf(2) + x, bad).copyOfRange(1, 33) },
+            )
         }
-        same("ecdhXOnly(x >= p)", k.ecdhXOnly(notOnCurve, sk), c.ecdhXOnly(notOnCurve, sk))
-        assertEquals(c.schnorrVerify(ByteArray(64), ByteArray(32), notOnCurve), k.schnorrVerify(ByteArray(64), ByteArray(32), notOnCurve))
-        assertEquals(
-            c.schnorrVerify(ByteArray(63), ByteArray(32), pub.copyOfRange(1, 33)),
-            k.schnorrVerify(ByteArray(63), ByteArray(32), pub.copyOfRange(1, 33)),
+        refereed(
+            "ecdhXOnly(x >= p)",
+            k.ecdhXOnly(notOnCurve, sk),
+            c.ecdhXOnly(notOnCurve, sk),
+            ref { acinq.pubKeyTweakMul(byteArrayOf(2) + notOnCurve, sk).copyOfRange(1, 33) },
         )
+        assertFalse(k.schnorrVerify(ByteArray(64), ByteArray(32), notOnCurve))
+        assertFalse(k.schnorrVerify(ByteArray(63), ByteArray(32), x))
     }
 }

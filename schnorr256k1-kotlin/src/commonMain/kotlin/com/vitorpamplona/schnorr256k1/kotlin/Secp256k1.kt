@@ -548,6 +548,10 @@ internal object Secp256k1 {
         val r = sc.scalarTmp1
         U256.fromBytesInto(a, seckey, 0)
         U256.fromBytesInto(b, tweak, 0)
+        // As libsecp256k1's ec_seckey_tweak_add: the key in [1, n), the tweak below n (zero is
+        // allowed). Reducing first would accept a tweak of n (≡ 0) or above, which it rejects.
+        require(ScalarN.isValid(a)) { "Invalid secret key" }
+        require(U256.cmp(b, ScalarN.N) < 0) { "Tweak is not below n" }
         ScalarN.addTo(r, a, b)
         // ScalarN.addTo already reduces mod n, so r < n is guaranteed.
         // The only remaining invalid state is r == 0, which matches the

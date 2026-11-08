@@ -105,7 +105,10 @@ public object Schnorr256k1 {
         msgs: List<ByteArray>,
     ): Boolean = sigs.size == msgs.size && orFalse { Secp256k1.verifySchnorrBatch(pub, sigs, msgs) }
 
-    /** `(seckey + tweak) mod n`, or null if the result is zero or an input is invalid. */
+    /**
+     * `(seckey + tweak) mod n`, or null if [seckey] is not a valid secret key, `tweak >= n`, or the
+     * result is zero. A zero tweak returns [seckey], as in libsecp256k1.
+     */
     public fun privkeyTweakAdd(
         seckey: ByteArray,
         tweak: ByteArray,

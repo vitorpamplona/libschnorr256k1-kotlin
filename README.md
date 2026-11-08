@@ -87,6 +87,8 @@ caches publish their entries with release/acquire ordering.
 - **`pubkeyCompress` validates its input**, as libsecp256k1 does; it used to re-encode any 65 or
   33 bytes with the right prefix, on the curve or not.
 - **Batch verification is weighted** (BIP-340), so invalid signatures cannot cancel.
+- **`privkeyTweakAdd` validates its inputs**, as libsecp256k1 does: the secret key in [1, n), the
+  tweak below n. It used to reduce both mod n first, so a tweak of n (≡ 0) returned the key.
 
 ## Differences from libschnorr256k1-kmp found so far
 
@@ -98,6 +100,11 @@ in libschnorr256k1 (C), both reproduced against libsecp256k1:
 - `pubkeyTweakMul`'s scalar multiplication shares an x-keyed table cache with verification. After
   a tweak-mul of an odd-y key, verify rejects valid signatures for that key's x-only form; after a
   verify, the tweak-mul of the odd-y key returns the negated point.
+- `privkeyTweakAdd` (`secp256k1c_privkey_tweak_add`) reduces its inputs mod n before checking
+  them, so it accepts a secret key of 0 or above n and a tweak of n or above, all of which
+  libsecp256k1 rejects (seen on x86-64; the ARM64 build answered differently, which is how the
+  first macOS release run found it). This library follows libsecp256k1, and
+  `Schnorr256k1ApiParityTest` referees invalid input against it, printing where C differs.
 
 ## Build and test
 
