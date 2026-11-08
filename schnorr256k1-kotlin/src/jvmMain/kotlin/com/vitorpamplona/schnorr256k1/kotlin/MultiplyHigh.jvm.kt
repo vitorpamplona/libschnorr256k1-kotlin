@@ -31,9 +31,15 @@ internal actual fun multiplyHigh(
 ): Long = Math.multiplyHigh(a, b)
 
 /**
- * JVM implementation using Math.unsignedMultiplyHigh (Java 18+).
- * Direct call — no MethodHandle, no boxing, no branch.
- * The JIT compiles this to a single UMULH instruction on x86-64/ARM64.
+ * Whether Math.unsignedMultiplyHigh exists (Java 18+). The library targets Java 17, where it does
+ * not: calling it there throws NoSuchMethodError. A static final, so the JIT folds the branch in
+ * [unsignedMultiplyHigh] away, and the call site of the missing method is never resolved on 17.
+ */
+private val HAS_UNSIGNED_MULTIPLY_HIGH: Boolean = Runtime.version().feature() >= 18
+
+/**
+ * Math.unsignedMultiplyHigh on Java 18+, which the JIT compiles to a single UMULH (or MUL on
+ * x86-64); on Java 17, [unsignedMultiplyHighFromSigned].
  *
  * This is the single most performance-critical function in the entire
  * secp256k1 implementation: called 16× per field multiply, ~12,000×
@@ -42,4 +48,14 @@ internal actual fun multiplyHigh(
 internal actual fun unsignedMultiplyHigh(
     a: Long,
     b: Long,
-): Long = Math.unsignedMultiplyHigh(a, b)
+): Long = if (HAS_UNSIGNED_MULTIPLY_HIGH) Math.unsignedMultiplyHigh(a, b) else unsignedMultiplyHighFromSigned(a, b)
+
+/**
+ * The unsigned high product from the signed one (Math.multiplyHigh, Java 9+): reading a negative
+ * Long as unsigned adds 2^64 to it, so hi(a·b) gains b when a < 0 and a when b < 0. What
+ * Math.unsignedMultiplyHigh itself computes on JDKs without the intrinsic.
+ */
+internal fun unsignedMultiplyHighFromSigned(
+    a: Long,
+    b: Long,
+): Long = Math.multiplyHigh(a, b) + ((a shr 63) and b) + ((b shr 63) and a)
