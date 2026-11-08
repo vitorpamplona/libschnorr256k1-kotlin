@@ -25,7 +25,10 @@ the C libraries.
   high product, bound with `@GCUnsafeCall` so the call skips cinterop's GC state switch and LLVM
   inlines the body into one `mul`/`umulh`. Their symbols are `schnorr256k1kt_*` so they cannot
   clash with a copy linked into the same binary (Quartz has `quartz_*`). The `compilerOpts`
-  CPU flags must match Kotlin/Native's target CPUs, or LLVM refuses to inline.
+  CPU flags must match Kotlin/Native's target CPUs, or LLVM refuses to inline. Its Kotlin side,
+  `MultiplyHigh.native.kt`, is in `src/nativeMulhiCinterop/`; `src/nativeMulhiKotlin/` holds the
+  pure-Kotlin one that JitPack builds use (`JITPACK=true`: Linux can't build the Apple cinterop,
+  and without it Kotlin cross-compiles every Apple klib there). `nativeMain` adds one of the two.
 - `schnorr256k1-kotlin/api/` — the public ABI dumps (`checkKotlinAbi`).
 - `docs/` — design notes and measurements (operation counts against libsecp256k1, the JVM
   field-multiply experiments, the constant-time audit).

@@ -12,8 +12,12 @@ plugins {
     alias(libs.plugins.vanniktech.mavenPublish)
 }
 
-// Every Kotlin/Native target except on JitPack, which builds JVM and Android only (see above).
-val nativeTargets = providers.environmentVariable("JITPACK").orNull != "true"
+// The hardware multiply-high on Kotlin/Native is a C cinterop (src/nativeMulhiCinterop), which
+// only a macOS host builds for the Apple targets. JitPack (JITPACK=true) builds on Linux, so it
+// uses the pure-Kotlin multiply-high (src/nativeMulhiKotlin) and no cinterop: Kotlin then
+// cross-compiles every Apple klib on Linux, and JitPack serves every target. Releases on Maven
+// Central are built on macOS, with the cinterop.
+val mulhiCinterop = providers.environmentVariable("JITPACK").orNull != "true"
 
 kotlin {
     // A library: every public declaration is a choice, and the ABI dump in api/ records it,
@@ -63,24 +67,23 @@ kotlin {
         }
     }
 
-    // JitPack (JITPACK=true) builds JVM and Android only: its Linux builders cannot build the Apple
-    // cinterop, and its default image's glibc is too old for Kotlin/Native's clang (jitpack.yml).
-    if (nativeTargets) {
-        iosArm64()
-        iosSimulatorArm64()
-        macosArm64()
-        linuxX64()
-    }
+    iosArm64()
+    iosSimulatorArm64()
+    macosArm64()
+    linuxX64()
 
-    // Hardware 64x64->128 multiply-high on Kotlin/Native (MultiplyHigh.native.kt): C helpers in
-    // src/nativeInterop/cinterop/mulhi.def, bound with @GCUnsafeCall. That annotation is a
-    // Kotlin/Native internal API; its opt-in marker is not visible to source code, so it is
-    // opted into here, for the per-target compilations and (below) the shared native source sets.
+    // Hardware 64x64->128 multiply-high on Kotlin/Native (nativeMulhiCinterop's
+    // MultiplyHigh.native.kt): C helpers in src/nativeInterop/cinterop/mulhi.def, bound with
+    // @GCUnsafeCall. That annotation is a Kotlin/Native internal API; its opt-in marker is not
+    // visible to source code, so it is opted into here, for the per-target compilations and
+    // (below) the shared native source sets.
     targets
         .withType<KotlinNativeTarget>()
         .configureEach {
-            compilations.getByName("main").cinterops.create("mulhi") {
-                definitionFile.set(project.file("src/nativeInterop/cinterop/mulhi.def"))
+            if (mulhiCinterop) {
+                compilations.getByName("main").cinterops.create("mulhi") {
+                    definitionFile.set(project.file("src/nativeInterop/cinterop/mulhi.def"))
+                }
             }
             compilations.configureEach {
                 compileTaskProvider.configure {
@@ -158,57 +161,56 @@ kotlin {
             }
         }
 
-        if (nativeTargets) {
-            val nativeMain =
-                create("nativeMain") {
-                    dependsOn(commonMain.get())
-                }
-
-            val nativeTest =
-                create("nativeTest") {
-                    dependsOn(commonTest.get())
-                }
-
-            val appleMain =
-                create("appleMain") {
-                    dependsOn(nativeMain)
-                }
-
-            val appleTest =
-                create("appleTest") {
-                    dependsOn(nativeTest)
-                }
-
-            listOf("iosArm64", "iosSimulatorArm64", "macosArm64").forEach {
-                getByName("${it}Main").dependsOn(appleMain)
-                getByName("${it}Test").dependsOn(appleTest)
+        val nativeMain =
+            create("nativeMain") {
+                dependsOn(commonMain.get())
+                kotlin.srcDir(if (mulhiCinterop) "src/nativeMulhiCinterop/kotlin" else "src/nativeMulhiKotlin/kotlin")
             }
 
-            val linuxMain =
-                create("linuxMain") {
-                    dependsOn(nativeMain)
-                }
+        val nativeTest =
+            create("nativeTest") {
+                dependsOn(commonTest.get())
+            }
 
-            val linuxTest =
-                create("linuxTest") {
-                    dependsOn(nativeTest)
-                }
+        val appleMain =
+            create("appleMain") {
+                dependsOn(nativeMain)
+            }
 
-            getByName("linuxX64Main").dependsOn(linuxMain)
-            getByName("linuxX64Test").dependsOn(linuxTest)
+        val appleTest =
+            create("appleTest") {
+                dependsOn(nativeTest)
+            }
 
-            // MultiplyHigh.native.kt's @GCUnsafeCall, for the shared metadata compiles. Every source
-            // set that depends on nativeMain must declare the same opt-in.
-            listOf(
-                nativeMain,
-                appleMain,
-                linuxMain,
-                getByName("iosArm64Main"),
-                getByName("iosSimulatorArm64Main"),
-                getByName("macosArm64Main"),
-                getByName("linuxX64Main"),
-            ).forEach { it.languageSettings.optIn("kotlin.native.internal.InternalForKotlinNative") }
+        listOf("iosArm64", "iosSimulatorArm64", "macosArm64").forEach {
+            getByName("${it}Main").dependsOn(appleMain)
+            getByName("${it}Test").dependsOn(appleTest)
         }
+
+        val linuxMain =
+            create("linuxMain") {
+                dependsOn(nativeMain)
+            }
+
+        val linuxTest =
+            create("linuxTest") {
+                dependsOn(nativeTest)
+            }
+
+        getByName("linuxX64Main").dependsOn(linuxMain)
+        getByName("linuxX64Test").dependsOn(linuxTest)
+
+        // MultiplyHigh.native.kt's @GCUnsafeCall, for the shared metadata compiles. Every source
+        // set that depends on nativeMain must declare the same opt-in.
+        listOf(
+            nativeMain,
+            appleMain,
+            linuxMain,
+            getByName("iosArm64Main"),
+            getByName("iosSimulatorArm64Main"),
+            getByName("macosArm64Main"),
+            getByName("linuxX64Main"),
+        ).forEach { it.languageSettings.optIn("kotlin.native.internal.InternalForKotlinNative") }
     }
 }
 

@@ -1,12 +1,12 @@
 # JitPack (jitpack.io) builds a commit or tag on request and serves what lands in ~/.m2:
 #   com.github.vitorpamplona.libschnorr256k1-kotlin:schnorr256k1-kotlin:<commit or tag>
-# for JVM and Android only. The Kotlin/Native targets are left out: JitPack runs Linux, which
-# cannot build the Apple klibs (their cinterop), and its default image's glibc is too old for
-# Kotlin/Native 2.4's clang, so even the linuxX64 cinterop fails there. Releases with every
-# platform go to Maven Central from macOS (create-release.yml).
+# for every target: JVM, Android, iOS, macOS and Linux. JitPack runs Linux, which cannot run the
+# Apple cinterop of the hardware multiply-high, so JITPACK=true builds the Kotlin/Native klibs
+# with the pure-Kotlin one instead (build.gradle.kts): the same results, slower on native.
+# Releases go to Maven Central from macOS, with the hardware one (create-release.yml).
 jdk:
   - openjdk21
 install:
   # JitPack's maven-mirror init script points Maven Central at a mirror that lags it by days;
   # without MAVEN_CENTRAL_MIRROR it does nothing (as Quartz's jitpack.yml does).
-  - env -u MAVEN_CENTRAL_MIRROR ./gradlew :schnorr256k1-kotlin:publishKotlinMultiplatformPublicationToMavenLocal :schnorr256k1-kotlin:publishJvmPublicationToMavenLocal :schnorr256k1-kotlin:publishAndroidPublicationToMavenLocal -PVERSION_NAME=$VERSION --no-configuration-cache
+  - env -u MAVEN_CENTRAL_MIRROR ./gradlew :schnorr256k1-kotlin:publishToMavenLocal -PVERSION_NAME=$VERSION --no-configuration-cache
