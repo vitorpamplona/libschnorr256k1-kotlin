@@ -9,8 +9,4 @@ jdk:
 install:
   # JitPack's maven-mirror init script points Maven Central at a mirror that lags it by days;
   # without MAVEN_CENTRAL_MIRROR it does nothing (as Quartz's jitpack.yml does).
-  # GROUP is the one JitPack serves (com.github.<user>.<repo>), so the Gradle module files it serves need
-  # no rewrite: its rewrite of another group drops the classifiers from the file names they list
-  # (-metadata.jar, -sources.jar), and Kotlin/Native consumers then fail to find the Apple
-  # targets' metadata jars.
-  - env -u MAVEN_CENTRAL_MIRROR ./gradlew :schnorr256k1-kotlin:publishToMavenLocal -PGROUP=com.github.vitorpamplona.libschnorr256k1-kotlin -PVERSION_NAME=$VERSION --no-configuration-cache
+  - env -u MAVEN_CENTRAL_MIRROR ./gradlew :schnorr256k1-kotlin:publishToMavenLocal -PVERSION_NAME=$VERSION --no-configuration-cache
