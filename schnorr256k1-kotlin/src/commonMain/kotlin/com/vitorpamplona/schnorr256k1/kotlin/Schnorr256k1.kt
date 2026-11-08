@@ -42,7 +42,7 @@ public object Schnorr256k1 {
     /** 65-byte uncompressed public key (`04 || x || y`) for a 32-byte secret key. */
     public fun pubkeyCreate(seckey: ByteArray): ByteArray? = orNull { Secp256k1.pubkeyCreate(seckey) }
 
-    /** 33-byte compressed public key from a 65-byte (or 33-byte) public key. */
+    /** 33-byte compressed public key from a 65- or 33-byte one; null if it is not a point on the curve. */
     public fun pubkeyCompress(pubkey: ByteArray): ByteArray? = orNull { Secp256k1.pubKeyCompress(pubkey) }
 
     /** True if [seckey] is 32 bytes and in [1, n). */
@@ -122,6 +122,30 @@ public object Schnorr256k1 {
         xonlyPub: ByteArray,
         scalar: ByteArray,
     ): ByteArray? = orNull { Secp256k1.ecdhXOnly(xonlyPub, scalar) }
+
+    /** The 65-byte uncompressed form of [pubkey] (33 or 65 bytes), or null if it is not a point on the curve. */
+    public fun pubkeyParse(pubkey: ByteArray): ByteArray? = orNull { Secp256k1.pubKeyParse(pubkey) }
+
+    /** `-pubkey`, in the input's format (33 or 65 bytes). Not in libschnorr256k1-kmp's API. */
+    public fun pubkeyNegate(pubkey: ByteArray): ByteArray? = orNull { Secp256k1.pubKeyNegate(pubkey) }
+
+    /**
+     * The sum of [pubkeys] (33 or 65 bytes each) as a 65-byte uncompressed key; null if the list
+     * is empty, a key is invalid, or the sum is the point at infinity. Not in libschnorr256k1-kmp's API.
+     */
+    public fun pubkeyCombine(pubkeys: List<ByteArray>): ByteArray? = orNull { Secp256k1.pubKeyCombine(pubkeys) }
+
+    /**
+     * `pubkey + tweak·G`, in the input's format; null if the key is invalid, `tweak >= n`, or the
+     * result is the point at infinity. A zero tweak returns the key. Not in libschnorr256k1-kmp's API.
+     */
+    public fun pubkeyTweakAdd(
+        pubkey: ByteArray,
+        tweak: ByteArray,
+    ): ByteArray? = orNull { Secp256k1.pubKeyTweakAdd(pubkey, tweak) }
+
+    /** `n - seckey`, or null if [seckey] is not a valid secret key. Not in libschnorr256k1-kmp's API. */
+    public fun privkeyNegate(seckey: ByteArray): ByteArray? = orNull { Secp256k1.privKeyNegate(seckey) }
 
     public fun sha256(data: ByteArray): ByteArray? = cryptoSha256(data)
 

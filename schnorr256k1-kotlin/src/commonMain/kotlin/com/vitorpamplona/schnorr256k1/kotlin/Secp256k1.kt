@@ -151,29 +151,15 @@ internal object Secp256k1 {
     }
 
     /**
-     * Compress a public key to 33 bytes (02/03 || x). Accepts 33 or 65 byte input.
-     *
-     * For uncompressed keys (04 prefix): reads the y-coordinate's parity from the last
-     * byte and copies the x-coordinate directly — no field arithmetic needed.
-     * For already-compressed keys: returns the input unchanged.
+     * 33-byte compressed form of a 33- or 65-byte (or hybrid) public key. Validates it, as
+     * libsecp256k1 does: a key that is not on the curve fails instead of being re-encoded.
      */
-    fun pubKeyCompress(pubkey: ByteArray): ByteArray =
-        when (pubkey.size) {
-            65 if pubkey[0] == 0x04.toByte() -> {
-                val result = ByteArray(33)
-                result[0] = if (pubkey[64].toInt() and 1 == 0) 0x02 else 0x03
-                pubkey.copyInto(result, 1, 1, 33)
-                result
-            }
-
-            33 if (pubkey[0] == 0x02.toByte() || pubkey[0] == 0x03.toByte()) -> {
-                pubkey
-            }
-
-            else -> {
-                error("Invalid public key: size=${pubkey.size}")
-            }
-        }
+    fun pubKeyCompress(pubkey: ByteArray): ByteArray {
+        val x = Fe4()
+        val y = Fe4()
+        require(KeyCodec.parsePublicKey(pubkey, x, y)) { "Invalid public key: size=${pubkey.size}" }
+        return KeyCodec.serializeCompressed(x, y)
+    }
 
     /**
      * Verify that a byte array is a valid secret key (32 bytes, 0 < value < n).
@@ -628,6 +614,82 @@ internal object Secp256k1 {
         ECPoint.mul(sc.entryResult, sc.entryPoint, k, sc)
         check(ECPoint.toAffineX(sc.entryResult, sc.entryPx, sc))
         return U256.toBytes(sc.entryPx)
+    }
+
+    // ==================== Public-key arithmetic (libsecp256k1's ec_pubkey_* family) ====================
+    //
+    // On public values only (keys, tweaks, points of a protocol such as Cashu's BDHKE). They throw
+    // on invalid input; the Schnorr256k1 facade turns that into null.
+
+    /** The 65-byte uncompressed form of a valid 33- or 65-byte public key. */
+    fun pubKeyParse(pubkey: ByteArray): ByteArray {
+        val x = Fe4()
+        val y = Fe4()
+        require(KeyCodec.parsePublicKey(pubkey, x, y)) { "Invalid public key" }
+        return KeyCodec.serializeUncompressed(x, y)
+    }
+
+    /** -P, in the input's format (33 or 65 bytes). */
+    fun pubKeyNegate(pubkey: ByteArray): ByteArray {
+        val x = Fe4()
+        val y = Fe4()
+        require(KeyCodec.parsePublicKey(pubkey, x, y)) { "Invalid public key" }
+        FieldP.neg(y, y)
+        return if (pubkey.size == 33) KeyCodec.serializeCompressed(x, y) else KeyCodec.serializeUncompressed(x, y)
+    }
+
+    /** P₁ + … + Pₖ as 65 bytes. Fails on an empty list, an invalid key, or a sum at infinity. */
+    fun pubKeyCombine(pubkeys: List<ByteArray>): ByteArray {
+        require(pubkeys.isNotEmpty()) { "Nothing to combine" }
+        val sc = ECPoint.getScratch()
+        val acc = MutablePoint()
+        val tmp = MutablePoint()
+        val x = Fe4()
+        val y = Fe4()
+        acc.setInfinity()
+        for (p in pubkeys) {
+            require(KeyCodec.parsePublicKey(p, x, y)) { "Invalid public key" }
+            ECPoint.addMixed(tmp, acc, x, y, sc)
+            acc.copyFrom(tmp)
+        }
+        check(ECPoint.toAffine(acc, x, y, sc)) { "The sum is the point at infinity" }
+        return KeyCodec.serializeUncompressed(x, y)
+    }
+
+    /**
+     * P + tweak·G, in the input's format. The tweak may be zero, as in libsecp256k1; it must be
+     * below n. Fails if the result is the point at infinity.
+     */
+    fun pubKeyTweakAdd(
+        pubkey: ByteArray,
+        tweak: ByteArray,
+    ): ByteArray {
+        require(tweak.size == 32)
+        val sc = ECPoint.getScratch()
+        val x = Fe4()
+        val y = Fe4()
+        require(KeyCodec.parsePublicKey(pubkey, x, y)) { "Invalid public key" }
+        val t = Fe4()
+        U256.fromBytesInto(t, tweak, 0)
+        require(U256.cmp(t, ScalarN.N) < 0) { "Tweak is not below n" }
+        if (!t.isZero()) {
+            val tg = MutablePoint()
+            ECPoint.mulG(tg, t, sc)
+            val sum = MutablePoint()
+            ECPoint.addMixed(sum, tg, x, y, sc)
+            check(ECPoint.toAffine(sum, x, y, sc)) { "The tweaked key is the point at infinity" }
+        }
+        return if (pubkey.size == 33) KeyCodec.serializeCompressed(x, y) else KeyCodec.serializeUncompressed(x, y)
+    }
+
+    /** n - seckey, for a valid secret key. */
+    fun privKeyNegate(seckey: ByteArray): ByteArray {
+        require(seckey.size == 32)
+        val d = Fe4()
+        U256.fromBytesInto(d, seckey, 0)
+        require(ScalarN.isValid(d)) { "Invalid secret key" }
+        ScalarN.negTo(d, d)
+        return U256.toBytes(d)
     }
 
     /** BIP-340 tagged hash (for tags not cached above). */
