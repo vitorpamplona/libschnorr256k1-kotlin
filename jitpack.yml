@@ -1,0 +1,9 @@
+# JitPack (jitpack.io) builds a commit or tag on request and serves what lands in ~/.m2:
+#   com.github.vitorpamplona.libschnorr256k1-kotlin:schnorr256k1-kotlin:<commit or tag>
+# Its builders run Linux, where Kotlin/Native skips the Apple targets (their cinterop cannot be
+# cross-compiled), so JitPack artifacts cover JVM, Android and Linux only. Releases with every
+# platform go to Maven Central from macOS (create-release.yml).
+jdk:
+  - openjdk21
+install:
+  - ./gradlew :schnorr256k1-kotlin:publishToMavenLocal -PVERSION_NAME=$VERSION --no-configuration-cache
