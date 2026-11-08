@@ -3,9 +3,6 @@
 # Its builders run Linux, where Kotlin/Native skips the Apple targets (their cinterop cannot be
 # cross-compiled), so JitPack artifacts cover JVM, Android and Linux only. Releases with every
 # platform go to Maven Central from macOS (create-release.yml).
-# The "latest" builder image: Kotlin/Native 2.4's bundled libclang needs glibc 2.29, and the
-# "default" image's is older (the linuxX64 cinterop fails with "GLIBC_2.29 not found").
-image: latest
 jdk:
   - openjdk21
 install:
