@@ -84,7 +84,8 @@ internal object KeyCodec {
     /**
      * Parse a serialized public key (33 bytes compressed or 65 bytes uncompressed).
      * For compressed keys (02/03 prefix): decompresses y from x via square root.
-     * For uncompressed keys (04 prefix): validates the point is on the curve.
+     * For uncompressed keys (04 prefix, or the hybrid 06/07): validates the point is on the curve
+     * with canonical coordinates, and for a hybrid key that the prefix gives y's parity.
      */
     fun parsePublicKey(
         pubkey: ByteArray,
@@ -106,9 +107,12 @@ internal object KeyCodec {
                 true
             }
 
-            65 if pubkey[0] == 0x04.toByte() -> {
+            // 04 || x || y, or a hybrid key (06/07: y's parity in the prefix), as libsecp256k1 parses.
+            65 if (pubkey[0] == 0x04.toByte() || pubkey[0] == 0x06.toByte() || pubkey[0] == 0x07.toByte()) -> {
                 val x = U256.fromBytes(pubkey.copyOfRange(1, 33))
                 val y = U256.fromBytes(pubkey.copyOfRange(33, 65))
+                // Coordinates must be canonical (< p), as libsecp256k1's parser requires.
+                if (U256.cmp(x, FieldP.P) >= 0 || U256.cmp(y, FieldP.P) >= 0) return false
                 val y2 = Fe4()
                 val x3p7 = Fe4()
                 val t = Fe4()
@@ -117,6 +121,7 @@ internal object KeyCodec {
                 FieldP.mul(x3p7, t, x)
                 FieldP.add(x3p7, x3p7, B)
                 if (U256.cmp(y2, x3p7) != 0) return false
+                if (pubkey[0] != 0x04.toByte() && (y.l0 and 1L == 1L) != (pubkey[0] == 0x07.toByte())) return false
                 outX.copyFrom(x)
                 outY.copyFrom(y)
                 true

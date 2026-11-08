@@ -2,9 +2,14 @@ public final class com/vitorpamplona/schnorr256k1/kotlin/Schnorr256k1 {
 	public static final field INSTANCE Lcom/vitorpamplona/schnorr256k1/kotlin/Schnorr256k1;
 	public final fun ecdhXOnly ([B[B)[B
 	public final fun ensureLoaded ()V
+	public final fun privkeyNegate ([B)[B
 	public final fun privkeyTweakAdd ([B[B)[B
+	public final fun pubkeyCombine (Ljava/util/List;)[B
 	public final fun pubkeyCompress ([B)[B
 	public final fun pubkeyCreate ([B)[B
+	public final fun pubkeyNegate ([B)[B
+	public final fun pubkeyParse ([B)[B
+	public final fun pubkeyTweakAdd ([B[B)[B
 	public final fun pubkeyTweakMul ([B[B)[B
 	public final fun schnorrSign ([B[B[B)[B
 	public static synthetic fun schnorrSign$default (Lcom/vitorpamplona/schnorr256k1/kotlin/Schnorr256k1;[B[B[BILjava/lang/Object;)[B

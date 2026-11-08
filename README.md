@@ -48,10 +48,18 @@ val okFast = Schnorr256k1.schnorrVerifyFast(sig, msg, xOnly) // skips BIP-340's 
 val shared = Schnorr256k1.ecdhXOnly(theirXOnly, seckey)   // NIP-04 / NIP-44
 val tweaked = Schnorr256k1.privkeyTweakAdd(seckey, tweak)
 val product = Schnorr256k1.pubkeyTweakMul(pub, tweak)
+
+// Key and point arithmetic, as libsecp256k1's ec_pubkey_* functions (BIP-341 tweaks, Cashu's BDHKE)
+val full = Schnorr256k1.pubkeyParse(compressed)           // 65 bytes; null if not on the curve
+val sum = Schnorr256k1.pubkeyCombine(listOf(pub, other))  // P + Q, 65 bytes
+val minusP = Schnorr256k1.pubkeyNegate(compressed)        // -P, in the input's format
+val tweakedPub = Schnorr256k1.pubkeyTweakAdd(compressed, tweak) // P + tweak·G
+val minusD = Schnorr256k1.privkeyNegate(seckey)           // n - d
 ```
 
-Invalid input returns `null` or `false`, as in libschnorr256k1-kmp. `schnorrSignWithPubKey` is not
-in that API: it takes the 33-byte compressed key, whose prefix carries the y parity BIP-340 signing
+Invalid input returns `null` or `false`, as in libschnorr256k1-kmp. The point arithmetic and
+`schnorrSignWithPubKey` are not in that API. Key parsing follows libsecp256k1: compressed,
+uncompressed and hybrid (`06`/`07`) keys, with canonical coordinates. `schnorrSignWithPubKey` it takes the 33-byte compressed key, whose prefix carries the y parity BIP-340 signing
 needs, and so skips the generator multiplication that derives the key. `schnorrSignXOnly` cannot do
 that (an x-only key has no parity) and costs the same as `schnorrSign`.
 
@@ -68,6 +76,17 @@ caches publish their entries with release/acquire ordering.
   whole batch, so invalid signatures cannot be made to cancel. The weights cost a 128-bit scalar
   multiplication per signature. Until 2026-11-07 the batch summed the signatures without weights,
   and two invalid signatures crafted to cancel (`s1 + d`, `s2 - d`) passed.
+
+## Fixed before 1.0.0
+
+- **Square roots of small values.** The field multiply leaves results below 2²⁵⁶, not below p, and
+  the square root compared `out²` with its input without reducing it. For an input below
+  2²⁵⁶ − p (x³ + 7 for a small x) it rejected valid roots, so points such as x = 1 failed to
+  parse or lift. Affine coordinates and the equality tests of point addition are now reduced too.
+  Random inputs reach none of these with any real probability (about 2⁻²²⁴); chosen ones did.
+- **`pubkeyCompress` validates its input**, as libsecp256k1 does; it used to re-encode any 65 or
+  33 bytes with the right prefix, on the curve or not.
+- **Batch verification is weighted** (BIP-340), so invalid signatures cannot cancel.
 
 ## Differences from libschnorr256k1-kmp found so far
 
