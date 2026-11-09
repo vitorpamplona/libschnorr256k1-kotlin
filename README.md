@@ -92,8 +92,8 @@ caches publish their entries with release/acquire ordering.
 
 ## Differences from libschnorr256k1-kmp found so far
 
-The JVM tests call both libraries side by side (`Schnorr256k1ApiParityTest`) and found two bugs
-in libschnorr256k1 (C), both reproduced against libsecp256k1:
+The JVM tests call both libraries side by side (`Schnorr256k1ApiParityTest`) and found these
+differences from libschnorr256k1 (C), each reproduced against libsecp256k1:
 
 - `schnorrSignXOnly` (`secp256k1c_schnorr_sign_xonly`) assumes the key has even y, and returns an
   invalid signature for the half of all keys whose public key has odd y.
@@ -105,6 +105,11 @@ in libschnorr256k1 (C), both reproduced against libsecp256k1:
   libsecp256k1 rejects (seen on x86-64; the ARM64 build answered differently, which is how the
   first macOS release run found it). This library follows libsecp256k1, and
   `Schnorr256k1ApiParityTest` referees invalid input against it, printing where C differs.
+- Signing with no aux randomness (`auxrand = null`): libschnorr256k1-kmp 1.0.5 uses t = d for the
+  nonce where BIP-340 and libsecp256k1 take no aux as 32 zero bytes, t = d XOR H_aux(0^32). Both
+  are valid signatures, with different bytes. This library follows BIP-340
+  (`Secp256k1CrossValidationTest.signSchnorrWithoutAuxMatchesAcinq`), and libschnorr256k1 changes
+  the same way in [vitorpamplona/libschnorr256k1#11](https://github.com/vitorpamplona/libschnorr256k1/pull/11).
 
 ## Build and test
 
