@@ -148,6 +148,25 @@ class KeyCodecTest {
         assertFalse(KeyCodec.parsePublicKey(fake, x, y))
     }
 
+    @Test
+    fun parseUncompressedSmallY() {
+        // Valid points with y = 1, 6, 11, 13: y² and x³ + 7 are small mod p, so the on-curve check
+        // must compare them reduced (it compared raw limbs, and rejected these four).
+        val keys =
+            listOf(
+                "041fe1e5ef3fceb5c135ab7741333ce5a6e80d68167653f6b2b24bcbcfaaaff5070000000000000000000000000000000000000000000000000000000000000001",
+                "04c8b492e17665b9e65e4a124661e1103f1aebfcc849dcd94f7688dcf149f6f4f20000000000000000000000000000000000000000000000000000000000000006",
+                "04a95c7e1d4c5db1863b7c6fb26ac231479ff552c18707b69a9ac6bf9c3676f31b000000000000000000000000000000000000000000000000000000000000000b",
+                "04c2b84dcef67220199a187064a65579cad41a3345bcf6974fe3a153128b81ca10000000000000000000000000000000000000000000000000000000000000000d",
+            )
+        for (key in keys) {
+            val x = Fe4()
+            val y = Fe4()
+            assertTrue(KeyCodec.parsePublicKey(key.hexToByteArray(), x, y), key)
+            assertEquals(key, KeyCodec.serializeUncompressed(x, y).toHexKey())
+        }
+    }
+
     // ==================== Serialization round-trips ====================
 
     @Test

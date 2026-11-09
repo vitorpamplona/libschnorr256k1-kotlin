@@ -80,7 +80,12 @@ internal object FieldP {
                 out.l1++
                 if (out.l1 == 0L) {
                     out.l2++
-                    if (out.l2 == 0L) out.l3++
+                    if (out.l2 == 0L) {
+                        out.l3++
+                        // a + b >= 2^257 - C (both inputs in [p, 2^256)): the fold carried out of
+                        // 2^256 again. What is left is below C, so one more C cannot carry.
+                        if (out.l3 == 0L) out.l0 += 4294968273L
+                    }
                 }
             }
         }
@@ -107,21 +112,31 @@ internal object FieldP {
     ) {
         val borrow = U256.subTo(out, a, b)
         if (borrow != 0) {
-            // Add P = [P0, -1, -1, -1].
-            val s0 = out.l0 + P0
-            val c0 = if (uLtInline(s0, out.l0)) 1L else 0L
-            out.l0 = s0
-            if (c0 == 0L) {
-                if (out.l1 != 0L) {
-                    out.l1--
+            // out = a - b + 2^256. Adding P subtracts C mod 2^256, which is a - b + p when that is
+            // not negative. It is when b >= a + p + 1 (b unreduced, a below C): then out < C,
+            // and it takes 2p (a second P).
+            val twice = out.l3 == 0L && out.l2 == 0L && out.l1 == 0L && uLtInline(out.l0, 4294968273L)
+            addP(out)
+            if (twice) addP(out)
+        }
+    }
+
+    /** out += P mod 2^256 (that is, out -= C): limb 0 plus P0, the upper limbs plus -1 with carry. */
+    @Suppress("NOTHING_TO_INLINE")
+    private inline fun addP(out: Fe4) {
+        val s0 = out.l0 + P0
+        val c0 = if (uLtInline(s0, out.l0)) 1L else 0L
+        out.l0 = s0
+        if (c0 == 0L) {
+            if (out.l1 != 0L) {
+                out.l1--
+            } else {
+                out.l1 = -1L
+                if (out.l2 != 0L) {
+                    out.l2--
                 } else {
-                    out.l1 = -1L
-                    if (out.l2 != 0L) {
-                        out.l2--
-                    } else {
-                        out.l2 = -1L
-                        out.l3--
-                    }
+                    out.l2 = -1L
+                    out.l3--
                 }
             }
         }
@@ -178,17 +193,33 @@ internal object FieldP {
         out: Fe4,
         a: Fe4,
     ) {
-        // Normalize input: P - a underflows if a > P (from lazy add)
-        reduceSelf(a)
-        // P - a: limb 0 is P0 - a.l0, limbs 1-3 are (-1) - a[i] = ~a[i]
-        out.l0 = P0 - a.l0
-        val borrow = if (uLtInline(P0, a.l0)) 1L else 0L
+        // P - a: limb 0 is P0 - a.l0, limbs 1-3 are (-1) - a[i] = ~a[i]. a is only read: it may
+        // be a shared table entry, and an unreduced a (in (P, 2^256), from lazy add or mul) is
+        // handled below instead of being reduced in place.
+        val a0 = a.l0
+        val a1 = a.l1
+        val a2 = a.l2
+        val a3 = a.l3
+        out.l0 = P0 - a0
+        val borrow = if (uLtInline(P0, a0)) 1L else 0L
         // ~a[i] - borrow. New borrow only if ~a[i] == 0 (i.e., a[i] == -1) and borrow == 1
-        out.l1 = a.l1.inv() - borrow
-        val b1 = if (a.l1 == -1L && borrow != 0L) 1L else 0L
-        out.l2 = a.l2.inv() - b1
-        val b2 = if (a.l2 == -1L && b1 != 0L) 1L else 0L
-        out.l3 = a.l3.inv() - b2
+        out.l1 = a1.inv() - borrow
+        val b1 = if (a1 == -1L && borrow != 0L) 1L else 0L
+        out.l2 = a2.inv() - b1
+        val b2 = if (a2 == -1L && b1 != 0L) 1L else 0L
+        out.l3 = a3.inv() - b2
+        if (a3 == -1L && b2 != 0L) {
+            // a > P: the chain borrowed out, out = 2^256 + P - a; minus C it is 2P - a = -a mod p.
+            val s0 = out.l0 - 4294968273L
+            if (uLtInline(out.l0, 4294968273L)) {
+                if (out.l1-- == 0L) {
+                    if (out.l2-- == 0L) {
+                        out.l3--
+                    }
+                }
+            }
+            out.l0 = s0
+        }
         // a == 0 ⇒ out == P here; reduceSelf folds P back to 0.
         reduceSelf(out)
     }
@@ -202,9 +233,11 @@ internal object FieldP {
         a: Fe4,
     ) {
         // Normalize: half conditionally adds P; if a is in [P, 2^256) from lazy add,
-        // a+P could exceed 2^256. Normalize ensures a < P first.
-        reduceSelf(a)
-        val mask = -(a.l0 and 1L) // all 1s if odd, all 0s if even
+        // a+P could exceed 2^256. Normalize a copy (out) so a < P first: a is only read, as it
+        // may be a shared table entry.
+        if (out !== a) out.copyFrom(a)
+        reduceSelf(out)
+        val mask = -(out.l0 and 1L) // all 1s if odd, all 0s if even
         val p0 = P0 and mask // P[0] masked; P[1..3] are -1, so P[i]&mask = mask
         var s1: Long
         var s2: Long
@@ -213,27 +246,27 @@ internal object FieldP {
 
         // Conditional add: out = a + (P & mask), unrolled
         // Limb 0
-        s1 = a.l0 + p0
-        c1 = if (uLtInline(s1, a.l0)) 1L else 0L
+        s1 = out.l0 + p0
+        c1 = if (uLtInline(s1, out.l0)) 1L else 0L
         out.l0 = s1
         var carry = c1
         // Limb 1
-        s1 = a.l1 + mask
-        c1 = if (uLtInline(s1, a.l1)) 1L else 0L
+        s1 = out.l1 + mask
+        c1 = if (uLtInline(s1, out.l1)) 1L else 0L
         s2 = s1 + carry
         c2 = if (uLtInline(s2, s1)) 1L else 0L
         out.l1 = s2
         carry = c1 + c2
         // Limb 2
-        s1 = a.l2 + mask
-        c1 = if (uLtInline(s1, a.l2)) 1L else 0L
+        s1 = out.l2 + mask
+        c1 = if (uLtInline(s1, out.l2)) 1L else 0L
         s2 = s1 + carry
         c2 = if (uLtInline(s2, s1)) 1L else 0L
         out.l2 = s2
         carry = c1 + c2
         // Limb 3
-        s1 = a.l3 + mask
-        c1 = if (uLtInline(s1, a.l3)) 1L else 0L
+        s1 = out.l3 + mask
+        c1 = if (uLtInline(s1, out.l3)) 1L else 0L
         s2 = s1 + carry
         c2 = if (uLtInline(s2, s1)) 1L else 0L
         out.l3 = s2
@@ -260,6 +293,17 @@ internal object FieldP {
         t.copyFrom(a)
         reduceSelf(t) // safegcd needs [0, p); lazy values are in [0, 2^256)
         SafeGcd.inverse(out, t, SafeGcd.P)
+    }
+
+    /**
+     * Parity of a mod p, for any a below 2^256 (reduced, or in [p, 2^256) as mul leaves a small
+     * value), without changing a: p is odd, so a - p has the other parity than a.
+     */
+    fun isOdd(a: Fe4): Boolean {
+        val geP =
+            a.l3 == -1L && a.l2 == -1L && a.l1 == -1L &&
+                (a.l0 xor Long.MIN_VALUE) >= (P0 xor Long.MIN_VALUE)
+        return ((a.l0 and 1L) == 1L) != geP
     }
 
     /** out = a^-1 mod p by Fermat, a^(p-2): 255 sqr + 15 mul. Kept for tests and benchmarks. */
@@ -511,9 +555,10 @@ internal object FieldP {
             }
         }
 
-        // No reduceSelf — lazy mul. Output is in [0, 2^256), possibly [P, P+C).
-        // Safe: mul/add/sub all handle unreduced inputs.
-        // Only neg/half/isZero/cmp/toBytes need explicit reduceSelf.
+        // No reduceSelf — lazy mul. Output is in [0, 2^256), and in [P, 2^256) whenever the true
+        // result v is below C: then it comes out as v + P, every time (hi = k - 1 above). So a
+        // small value is never canonical here: compare, test parity or serialize only after
+        // reduceSelf (or through a helper that handles [P, 2^256), as hasEvenY does).
     }
 
     // ==================== Convenience wrappers ====================

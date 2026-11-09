@@ -920,6 +920,14 @@ internal object ECPoint {
         FieldP.mul(outA[0].y, a[0].y, zInv3, w)
         FieldP.mul(outB[0].x, b[0].x, zInv2, w)
         FieldP.mul(outB[0].y, b[0].y, zInv3, w)
+        // Canonical coordinates: the tables are cached and shared, and mul leaves a small value as
+        // value + p.
+        for (i in a.indices) {
+            FieldP.reduceSelf(outA[i].x)
+            FieldP.reduceSelf(outA[i].y)
+            FieldP.reduceSelf(outB[i].x)
+            FieldP.reduceSelf(outB[i].y)
+        }
     }
 
     // ==================== Coordinate Conversion ====================
