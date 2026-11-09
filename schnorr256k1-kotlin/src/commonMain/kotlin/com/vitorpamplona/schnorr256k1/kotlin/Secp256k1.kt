@@ -80,6 +80,9 @@ internal object Secp256k1 {
 
     private val CHALLENGE_PREFIX: ByteArray = sha256("BIP0340/challenge".encodeToByteArray()).let { it + it }
     private val AUX_PREFIX: ByteArray = sha256("BIP0340/aux".encodeToByteArray()).let { it + it }
+
+    // H_aux of 32 zero bytes: the mask for signing with no aux randomness (libsecp256k1's ZERO_MASK)
+    private val ZERO_MASK: ByteArray = sha256(AUX_PREFIX + ByteArray(32))
     private val NONCE_PREFIX: ByteArray = sha256("BIP0340/nonce".encodeToByteArray()).let { it + it }
 
     // ==================== Pubkey decompression cache ====================
@@ -261,7 +264,7 @@ internal object Secp256k1 {
      * @param data Message bytes (any length)
      * @param seckey 32-byte secret key
      * @param compressedPub 33-byte compressed public key (02/03 || x)
-     * @param auxrand Optional 32-byte auxiliary randomness (null for deterministic)
+     * @param auxrand Optional 32-byte auxiliary randomness (null for deterministic: the same as 32 zero bytes, as in BIP-340 and libsecp256k1)
      */
     fun signSchnorrWithPubKey(
         data: ByteArray,
@@ -331,22 +334,24 @@ internal object Secp256k1 {
         val dBytes = sc.bytesTmp1
         U256.toBytesInto(d, dBytes, 0)
 
-        val tBytes: ByteArray
+        // t = d XOR H_aux(aux). No aux (null) is 32 zero bytes, as BIP-340 and libsecp256k1 have
+        // it: H_aux is then the constant ZERO_MASK, so a deterministic signature is the same bytes
+        // as theirs. (It used to skip the XOR, t = d: valid signatures, other bytes.)
         if (auxrand != null) {
             require(auxrand.size == 32)
             // Build AUX_PREFIX + auxrand in scratch hashBuf (avoids concatenation alloc)
             AUX_PREFIX.copyInto(sc.hashBuf, 0, 0, 64)
             auxrand.copyInto(sc.hashBuf, 64, 0, 32)
             sha256Into(sc.bytesTmp2, sc.hashBuf, 96)
-            // XOR d with auxHash — reuse limb scratch
-            U256.fromBytesInto(sc.scalarTmp1, dBytes, 0)
-            U256.fromBytesInto(sc.scalarTmp2, sc.bytesTmp2, 0)
-            U256.xorTo(sc.scalarTmp3, sc.scalarTmp1, sc.scalarTmp2)
-            tBytes = sc.bytesTmp2 // reuse bytesTmp2 for tBytes
-            U256.toBytesInto(sc.scalarTmp3, tBytes, 0)
         } else {
-            tBytes = dBytes
+            ZERO_MASK.copyInto(sc.bytesTmp2)
         }
+        // XOR d with auxHash — reuse limb scratch
+        U256.fromBytesInto(sc.scalarTmp1, dBytes, 0)
+        U256.fromBytesInto(sc.scalarTmp2, sc.bytesTmp2, 0)
+        U256.xorTo(sc.scalarTmp3, sc.scalarTmp1, sc.scalarTmp2)
+        val tBytes = sc.bytesTmp2 // reuse bytesTmp2 for tBytes
+        U256.toBytesInto(sc.scalarTmp3, tBytes, 0)
 
         // Build nonce input. Reuse hashBuf if it fits.
         val nonceLen = 64 + 32 + 32 + data.size

@@ -35,6 +35,21 @@ class SchnorrTest {
     // ============================================================
 
     @Test
+    fun bip340Vector0SignWithoutAux() {
+        // Vector 0's aux is 32 zero bytes, which is what no aux (null) means in BIP-340 and
+        // libsecp256k1: the same signature, from every entry point.
+        val msg = "0000000000000000000000000000000000000000000000000000000000000000".hexToByteArray()
+        val sec = "0000000000000000000000000000000000000000000000000000000000000003".hexToByteArray()
+        val expected =
+            "e907831f80848d1069a5371b402410364bdf1c5f8307b0084c55f1ce2dca8215" +
+                "25f66a4a85ea8b71e482a74f382d2ce5ebeee8fdb2172f477df4900d310536c0"
+        val compressed = Secp256k1.pubKeyCompress(Secp256k1.pubkeyCreate(sec))
+        assertEquals(expected, Secp256k1.signSchnorr(msg, sec, null).toHexKey())
+        assertEquals(expected, Secp256k1.signSchnorrWithPubKey(msg, sec, compressed, null).toHexKey())
+        assertEquals(expected, Secp256k1.signSchnorrWithXOnlyPubKey(msg, sec, compressed.copyOfRange(1, 33), null).toHexKey())
+    }
+
+    @Test
     fun bip340Vector0Sign() {
         val sig =
             Secp256k1.signSchnorr(
