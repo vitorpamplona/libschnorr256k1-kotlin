@@ -464,42 +464,28 @@ internal inline fun reduceWideInline(
     out.l3 = s2
     carry = hcHi + c1 + c2
 
-    // Round 2: fold carry × C
-    if (carry != 0L) {
-        val ccLo = carry * c
-        val ccHi = umulh(carry, c)
-        s1 = out.l0 + ccLo
-        c1 = if (uLtInline(s1, out.l0)) 1L else 0L
-        out.l0 = s1
-        var prop = ccHi + c1
-        if (prop != 0L) {
-            s1 = out.l1 + prop
-            prop = if (uLtInline(s1, out.l1)) 1L else 0L
-            out.l1 = s1
-            if (prop != 0L) {
-                s1 = out.l2 + prop
-                prop = if (uLtInline(s1, out.l2)) 1L else 0L
-                out.l2 = s1
-                if (prop != 0L) {
-                    s1 = out.l3 + prop
-                    prop = if (uLtInline(s1, out.l3)) 1L else 0L
-                    out.l3 = s1
-                }
-            }
-        }
-        if (prop != 0L) {
-            s1 = out.l0 + c
-            c1 = if (uLtInline(s1, out.l0)) 1L else 0L
-            out.l0 = s1
-            if (c1 != 0L) {
-                out.l1++
-                if (out.l1 == 0L) {
-                    out.l2++
-                    if (out.l2 == 0L) out.l3++
-                }
-            }
-        }
-    }
+    // Round 2: fold carry × C (carry < 2^34). Branch-free, as FieldP.reduceWide: whether the fold
+    // carries past limb 0, and out of 2^256, depends on the data.
+    val ccLo = carry * c
+    val ccHi = umulh(carry, c)
+    val l0 = out.l0
+    val t0 = l0 + ccLo
+    c1 = if (uLtInline(t0, l0)) 1L else 0L
+    val prop = ccHi + c1
+    val t1 = out.l1 + prop
+    val p1 = if (uLtInline(t1, prop)) 1L else 0L
+    val t2 = out.l2 + p1
+    val p2 = if (uLtInline(t2, p1)) 1L else 0L
+    val t3 = out.l3 + p2
+    val p3 = if (uLtInline(t3, p2)) 1L else 0L
+    // Overflow past 256 bits (2^256 ≡ C): then t1 is small and t2 = t3 = 0, so adding C to limb 0
+    // can carry into limb 1 but no further.
+    val u0 = t0 + ((-p3) and c)
+    val e0 = if (uLtInline(u0, t0)) 1L else 0L
+    out.l0 = u0
+    out.l1 = t1 + e0
+    out.l2 = t2
+    out.l3 = t3
 
     // Final normalization: ensure out < p
     if (out.l3 == -1L && out.l2 == -1L && out.l1 == -1L &&
