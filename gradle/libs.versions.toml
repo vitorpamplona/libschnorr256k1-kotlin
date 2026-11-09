@@ -8,7 +8,7 @@ cryptoKmp = "2.1.0"
 kotlin = "2.4.21"
 kotlinxCoroutines = "1.11.0"
 mavenPublish = "0.37.0"
-schnorr256k1Kmp = "1.0.5"
+schnorr256k1Kmp = "1.1.0"
 secp256k1Kmp = "0.24.0"
 spotless = "8.10.4"
 
