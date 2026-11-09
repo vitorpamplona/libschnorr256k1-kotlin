@@ -78,8 +78,8 @@ internal object KeyCodec {
         return true
     }
 
-    /** Check if y-coordinate is even (LSB = 0). */
-    fun hasEvenY(y: Fe4): Boolean = y.l0 and 1L == 0L
+    /** y mod p is even. y may be unreduced (mul leaves a small y as y + p). */
+    fun hasEvenY(y: Fe4): Boolean = !FieldP.isOdd(y)
 
     /**
      * Parse a serialized public key (33 bytes compressed or 65 bytes uncompressed).

@@ -370,6 +370,40 @@ class FieldPTest {
     }
 
     @Test
+    fun subOfAnUnreducedSubtrahend() {
+        // b >= a + p + 1: adding p once leaves the result negative, it takes 2p.
+        val a = Fe4(5L, 0L, 0L, 0L)
+        val b = hex("fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc93") // p + 100
+        assertEquals(
+            "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffbd0", // 5 - (p + 100) = p - 95
+            toHex(reduced(FieldP.sub(a, b))),
+        )
+    }
+
+    @Test
+    fun negAndHalfLeaveAnUnreducedInputUntouched() {
+        // Inputs can be shared table entries: neg and half read them, never reduce them in place.
+        val threeUnreduced = "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc32" // p + 3
+        val a = hex(threeUnreduced)
+        val out = Fe4()
+        FieldP.neg(out, a)
+        assertEquals(threeUnreduced, toHex(a))
+        assertEquals("fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2c", toHex(reduced(out))) // -3
+        FieldP.half(out, a)
+        assertEquals(threeUnreduced, toHex(a))
+        assertEquals("7fffffffffffffffffffffffffffffffffffffffffffffffffffffff7ffffe19", toHex(reduced(out))) // 3/2
+    }
+
+    @Test
+    fun hasEvenYOfUnreducedValues() {
+        // mul leaves a small y as y + p; its parity is the opposite of y + p's.
+        assertTrue(!KeyCodec.hasEvenY(hex("fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc30"))) // p + 1
+        assertTrue(KeyCodec.hasEvenY(hex("fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc31"))) // p + 2
+        assertTrue(KeyCodec.hasEvenY(Fe4(2L, 0L, 0L, 0L)))
+        assertTrue(!KeyCodec.hasEvenY(Fe4(1L, 0L, 0L, 0L)))
+    }
+
+    @Test
     fun chainedLazyAddThenMulReducesCorrectly() {
         // Build a value close to 2^256 via chained lazy adds so the
         // subsequent multiplication feeds the reducer an input near its
