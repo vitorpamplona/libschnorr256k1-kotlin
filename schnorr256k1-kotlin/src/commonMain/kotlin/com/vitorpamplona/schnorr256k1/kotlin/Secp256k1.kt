@@ -519,8 +519,9 @@ internal object Secp256k1 {
         val w = sc.w
         FieldP.sqr(sc.zInv2, sc.entryResult.z, w) // Z²
         FieldP.mul(sc.zInv3, r, sc.zInv2, w) // r·Z²
-        // Normalize X before comparison (may be unreduced from lazy fe_add)
+        // Both sides reduced (mul leaves r·Z² below 2^256, not always below p)
         FieldP.reduceSelf(sc.entryResult.x)
+        FieldP.reduceSelf(sc.zInv3)
         return U256.cmp(sc.entryResult.x, sc.zInv3) == 0
     }
 

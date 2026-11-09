@@ -120,6 +120,10 @@ internal object KeyCodec {
                 FieldP.sqr(t, x)
                 FieldP.mul(x3p7, t, x)
                 FieldP.add(x3p7, x3p7, B)
+                // Compared reduced: mul, sqr and add leave values below 2^256, not below p, and for
+                // a small y (so a small y² and x³ + 7) one side can come back as value + p.
+                FieldP.reduceSelf(y2)
+                FieldP.reduceSelf(x3p7)
                 if (U256.cmp(y2, x3p7) != 0) return false
                 if (pubkey[0] != 0x04.toByte() && (y.l0 and 1L == 1L) != (pubkey[0] == 0x07.toByte())) return false
                 outX.copyFrom(x)

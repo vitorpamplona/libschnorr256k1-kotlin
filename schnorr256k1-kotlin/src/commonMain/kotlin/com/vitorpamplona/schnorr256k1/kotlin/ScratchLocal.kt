@@ -24,9 +24,7 @@ package com.vitorpamplona.schnorr256k1.kotlin
  * KMP-compatible thread-local storage.
  *
  * On JVM/Android: delegates to java.lang.ThreadLocal for true per-thread isolation.
- * On Native: single-threaded assumption — just holds the value directly.
- * (Kotlin/Native has its own threading model; for the secp256k1 use case,
- * scratch buffers don't need thread isolation since coroutines are cooperative.)
+ * On Native: a `@ThreadLocal` array of slots, so each thread has its own value too.
  */
 internal expect class ScratchLocal<T : Any>(
     initializer: () -> T,

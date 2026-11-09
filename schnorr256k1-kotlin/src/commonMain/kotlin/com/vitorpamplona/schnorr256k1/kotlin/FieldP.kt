@@ -80,7 +80,12 @@ internal object FieldP {
                 out.l1++
                 if (out.l1 == 0L) {
                     out.l2++
-                    if (out.l2 == 0L) out.l3++
+                    if (out.l2 == 0L) {
+                        out.l3++
+                        // a + b >= 2^257 - C (both inputs in [p, 2^256)): the fold carried out of
+                        // 2^256 again. What is left is below C, so one more C cannot carry.
+                        if (out.l3 == 0L) out.l0 += 4294968273L
+                    }
                 }
             }
         }

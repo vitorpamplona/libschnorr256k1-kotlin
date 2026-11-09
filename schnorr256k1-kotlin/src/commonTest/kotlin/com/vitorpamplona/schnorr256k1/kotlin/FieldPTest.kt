@@ -343,6 +343,33 @@ class FieldPTest {
     }
 
     @Test
+    fun addOfTwoUnreducedValuesFoldsTwice() {
+        // a + b >= 2^257 - C: the fold of the first carry carries out of 2^256 again, and that
+        // second 2^256 must be folded too (it was dropped: the sum came out C short).
+        val cases =
+            listOf(
+                Triple(
+                    "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                    "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                    "00000000000000000000000000000000000000000000000000000002000007a0",
+                ),
+                Triple(
+                    "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                    "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f",
+                    "00000000000000000000000000000000000000000000000000000001000003d0",
+                ),
+                Triple(
+                    "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc34",
+                    "fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffd",
+                    "00000000000000000000000000000000000000000000000000000001000003d3",
+                ),
+            )
+        for ((a, b, sum) in cases) {
+            assertEquals(sum, toHex(reduced(FieldP.add(hex(a), hex(b)))))
+        }
+    }
+
+    @Test
     fun chainedLazyAddThenMulReducesCorrectly() {
         // Build a value close to 2^256 via chained lazy adds so the
         // subsequent multiplication feeds the reducer an input near its
