@@ -48,7 +48,11 @@ public object Schnorr256k1 {
     /** True if [seckey] is 32 bytes and in [1, n). */
     public fun seckeyVerify(seckey: ByteArray): Boolean = Secp256k1.secKeyVerify(seckey)
 
-    /** BIP-340 signature of [msg] (any length). Derives the public key; see [schnorrSignXOnly]. */
+    /**
+     * BIP-340 signature of [msg] (any length). Derives the public key; see [schnorrSignXOnly].
+     * [auxrand]: 32 bytes of fresh randomness, recommended; null signs deterministically, the same
+     * as 32 zero bytes (as in BIP-340 and libsecp256k1). The same for every sign function here.
+     */
     public fun schnorrSign(
         msg: ByteArray,
         seckey: ByteArray,

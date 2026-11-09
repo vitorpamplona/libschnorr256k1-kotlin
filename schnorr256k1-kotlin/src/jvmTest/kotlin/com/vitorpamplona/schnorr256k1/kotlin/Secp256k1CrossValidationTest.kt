@@ -93,6 +93,23 @@ class Secp256k1CrossValidationTest {
     }
 
     @Test
+    fun signSchnorrWithoutAuxMatchesAcinq() {
+        // No aux (null) is 32 zero bytes in BIP-340 and libsecp256k1, so a deterministic
+        // signature must be byte-identical too, from every sign entry point.
+        val zeros = ByteArray(32)
+        repeat(50) {
+            val seckey = randomSeckey()
+            val msg = randomMessage(32)
+            val acinqSig = acinq.signSchnorr(msg, seckey, null)
+            assertContentEquals(acinqSig, acinq.signSchnorr(msg, seckey, zeros))
+            assertContentEquals(acinqSig, Secp256k1.signSchnorr(msg, seckey, null))
+            val compressed = Secp256k1.pubKeyCompress(Secp256k1.pubkeyCreate(seckey))
+            assertContentEquals(acinqSig, Secp256k1.signSchnorrWithPubKey(msg, seckey, compressed, null))
+            assertContentEquals(acinqSig, Secp256k1.signSchnorrWithXOnlyPubKey(msg, seckey, compressed.copyOfRange(1, 33), null))
+        }
+    }
+
+    @Test
     fun signSchnorrVariableMessageLengthSelfConsistent() {
         // ACINQ's signSchnorr API hard-codes the BIP-340 convention that the
         // message is exactly 32 bytes. Our Kotlin implementation accepts
