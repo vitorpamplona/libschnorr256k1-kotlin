@@ -727,6 +727,7 @@ internal object Secp256k1 {
     private class BatchScratch {
         val jac = Array(BATCH_CHUNK * BATCH_TABLE) { MutablePoint() }
         val rAff = Array(BATCH_CHUNK) { AffinePoint() }
+        val r1 = Fe4()
         val rJac = MutablePoint()
         val z2 = Fe4()
         val z3 = Fe4()
@@ -861,16 +862,15 @@ internal object Secp256k1 {
                 U256.fromBytesInto(e, sc.bytesTmp1, 0)
                 ScalarN.reduceTo(e, e)
 
-                if (!KeyCodec.liftX(rx, ry, r, sc.zInv)) return false
-
                 if (i == 0) {
-                    // a₁ = 1
+                    // a₁ = 1. R₁ is not lifted: the check at the end compares with it instead.
                     ScalarN.addTo(b.sSum, b.sSum, s)
                     ScalarN.addTo(b.eSum, b.eSum, e)
-                    b.rSum.setAffine(rx, ry)
+                    b.r1.copyFrom(r)
                     b.wnafLen[0] = 0
                     continue
                 }
+                if (!KeyCodec.liftX(rx, ry, r, sc.zInv)) return false
                 batchWeight(b, i)
                 ScalarN.mulTo(b.term, b.coef, s, b.wide)
                 ScalarN.addTo(b.sSum, b.sSum, b.term)
@@ -887,7 +887,7 @@ internal object Secp256k1 {
                 b.rAff[j].y.copyFrom(ry)
             }
 
-            val first = if (chunkStart == 0) 1 else 0 // R₁ went straight into rSum
+            val first = if (chunkStart == 0) 1 else 0 // R₁ is checked at the end, not summed
             val count = chunkEnd - chunkStart
             if (count > first) {
                 batchOddMultiples(b, first, count, sc)
@@ -921,13 +921,24 @@ internal object Secp256k1 {
             chunkStart = chunkEnd
         }
 
-        // Q = (Σaᵢsᵢ)·G − (Σaᵢeᵢ)·P; valid iff Q == Σ aᵢ·Rᵢ.
+        // Q = (Σaᵢsᵢ)·G − (Σaᵢeᵢ)·P − Σᵢ≥₂ aᵢ·Rᵢ must be R₁ = lift_x(r₁): x = r₁ and an even y,
+        // the same check a single verify makes of its R. So R₁ costs an inversion, not a square root
+        // (as libschnorr256k1's batch). An x on the curve equal to r₁ also means r₁ lifts.
         ScalarN.negTo(b.eSum, b.eSum)
         sc.entryPoint.setAffine(px, py)
         ECPoint.mulDoubleG(b.q, b.sSum, sc.entryPoint, b.eSum)
         FieldP.neg(b.rSum.y, b.rSum.y)
         ECPoint.addPoints(b.sum, b.q, b.rSum, sc)
-        return b.sum.isInfinity()
+        if (b.sum.isInfinity()) return false
+        val w = sc.w
+        FieldP.inv(b.zInv, b.sum.z)
+        FieldP.sqr(b.zInv2, b.zInv, w)
+        FieldP.mul(b.zInv3, b.zInv2, b.zInv, w)
+        FieldP.mul(b.inv, b.sum.x, b.zInv2, w)
+        FieldP.reduceSelf(b.inv)
+        if (U256.cmp(b.inv, b.r1) != 0) return false
+        FieldP.mul(b.negY, b.sum.y, b.zInv3, w)
+        return KeyCodec.hasEvenY(b.negY)
     }
 
     /**

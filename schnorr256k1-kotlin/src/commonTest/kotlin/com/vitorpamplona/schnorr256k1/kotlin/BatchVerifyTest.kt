@@ -129,20 +129,46 @@ class BatchVerifyTest {
 
     @Test
     fun malformedSignaturesAreRejected() {
-        val b = batch(4)
-        val p = U256.toBytes(FieldP.P)
-        val n = U256.toBytes(ScalarN.N)
-        val cases =
-            mapOf(
-                "r = p" to p + b.sigs[1].copyOfRange(32, 64),
-                "s = n" to b.sigs[1].copyOfRange(0, 32) + n,
-                "r not an x on the curve" to ByteArray(32).also { it[31] = 5 } + b.sigs[1].copyOfRange(32, 64),
-                "63 bytes" to b.sigs[1].copyOf(63),
-            )
-        for ((name, bad) in cases) {
-            val sigs = b.sigs.toMutableList()
-            sigs[1] = bad
-            assertFalse(Secp256k1.verifySchnorrBatch(b.pub, sigs, b.msgs), "$name passed")
+        // At 0 too: signature 1's R is never lifted, the final check compares with its r instead.
+        for (at in listOf(0, 1)) {
+            val b = batch(4)
+            val p = U256.toBytes(FieldP.P)
+            val n = U256.toBytes(ScalarN.N)
+            val cases =
+                mapOf(
+                    "r = p" to p + b.sigs[at].copyOfRange(32, 64),
+                    "s = n" to b.sigs[at].copyOfRange(0, 32) + n,
+                    "r not an x on the curve" to ByteArray(32).also { it[31] = 5 } + b.sigs[at].copyOfRange(32, 64),
+                    "63 bytes" to b.sigs[at].copyOf(63),
+                )
+            for ((name, bad) in cases) {
+                val sigs = b.sigs.toMutableList()
+                sigs[at] = bad
+                assertFalse(Secp256k1.verifySchnorrBatch(b.pub, sigs, b.msgs), "$name at $at passed")
+            }
+        }
+    }
+
+    /**
+     * s' = 2·e·d − s makes s'·G − e·P = −R: the right x, but odd y. A single verify rejects it on
+     * R's parity, and so must the batch, also when it is signature 1, whose R the batch never lifts.
+     */
+    @Test
+    fun aSignatureWhoseRHasOddYIsRejected() {
+        for (at in listOf(0, 1, 70)) {
+            val sec = key()
+            val pub65 = Secp256k1.pubkeyCreate(sec)
+            val pub = pub65.copyOfRange(1, 33)
+            val d = U256.fromBytes(sec).let { if (pub65[64].toInt() and 1 == 1) ScalarN.neg(it) else it }
+            val msgs = List(at + 3) { rnd.nextBytes(32) }
+            val sigs = MutableList(msgs.size) { Secp256k1.signSchnorr(msgs[it], sec, rnd.nextBytes(32)) }
+            val sig = sigs[at]
+            val e = ScalarN.reduce(U256.fromBytes(Schnorr256k1.taggedHash("BIP0340/challenge", sig.copyOfRange(0, 32) + pub + msgs[at])!!))
+            val twoEd = ScalarN.mul(ScalarN.add(e, e), d)
+            val forged = sig.copyOfRange(0, 32) + U256.toBytes(ScalarN.sub(twoEd, U256.fromBytes(sig.copyOfRange(32, 64))))
+            assertFalse(Secp256k1.verifySchnorr(forged, msgs[at], pub), "single verify accepted the odd-y R")
+            sigs[at] = forged
+            assertFalse(Secp256k1.verifySchnorrBatch(pub, sigs, msgs), "batch accepted an odd-y R at $at")
         }
     }
 
