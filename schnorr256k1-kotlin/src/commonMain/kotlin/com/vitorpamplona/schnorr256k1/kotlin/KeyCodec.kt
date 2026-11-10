@@ -41,6 +41,9 @@ internal object KeyCodec {
     /** Curve constant b = 7 in y² = x³ + 7. */
     private val B = Fe4(7L, 0L, 0L, 0L)
 
+    /** Per thread: [parsePublicKey]'s two temporaries, then [compress]'s x and y. */
+    private val scratch = ScratchLocal { Array(4) { Fe4() } }
+
     /**
      * Lift an x-coordinate to a curve point with even y (BIP-340 convention).
      * Computes y = √(x³ + 7) mod p. Returns false if x is not a valid coordinate.
@@ -94,14 +97,14 @@ internal object KeyCodec {
     ): Boolean =
         when (pubkey.size) {
             33 if (pubkey[0] == 0x02.toByte() || pubkey[0] == 0x03.toByte()) -> {
-                val x = U256.fromBytes(pubkey.copyOfRange(1, 33))
-                if (U256.cmp(x, FieldP.P) >= 0) return false
-                val t = Fe4()
-                FieldP.sqr(t, x)
-                FieldP.mul(t, t, x)
+                // Read straight into the outputs: on false the caller ignores them.
+                U256.fromBytesInto(outX, pubkey, 1)
+                if (U256.cmp(outX, FieldP.P) >= 0) return false
+                val t = scratch.get()[0]
+                FieldP.sqr(t, outX)
+                FieldP.mul(t, t, outX)
                 FieldP.add(t, t, B) // y² = x³ + 7
                 if (!FieldP.sqrt(outY, t)) return false
-                outX.copyFrom(x)
                 val isOdd = outY.l0 and 1L == 1L
                 if (isOdd != (pubkey[0] == 0x03.toByte())) FieldP.neg(outY, outY)
                 true
@@ -109,16 +112,18 @@ internal object KeyCodec {
 
             // 04 || x || y, or a hybrid key (06/07: y's parity in the prefix), as libsecp256k1 parses.
             65 if (pubkey[0] == 0x04.toByte() || pubkey[0] == 0x06.toByte() || pubkey[0] == 0x07.toByte()) -> {
-                val x = U256.fromBytes(pubkey.copyOfRange(1, 33))
-                val y = U256.fromBytes(pubkey.copyOfRange(33, 65))
+                val x = outX
+                val y = outY
+                U256.fromBytesInto(x, pubkey, 1)
+                U256.fromBytesInto(y, pubkey, 33)
                 // Coordinates must be canonical (< p), as libsecp256k1's parser requires.
                 if (U256.cmp(x, FieldP.P) >= 0 || U256.cmp(y, FieldP.P) >= 0) return false
-                val y2 = Fe4()
-                val x3p7 = Fe4()
-                val t = Fe4()
+                val s = scratch.get()
+                val y2 = s[0]
+                val x3p7 = s[1]
                 FieldP.sqr(y2, y)
-                FieldP.sqr(t, x)
-                FieldP.mul(x3p7, t, x)
+                FieldP.sqr(x3p7, x)
+                FieldP.mul(x3p7, x3p7, x)
                 FieldP.add(x3p7, x3p7, B)
                 // Compared reduced: mul, sqr and add leave values below 2^256, not below p, and for
                 // a small y (so a small y² and x³ + 7) one side can come back as value + p.
@@ -126,8 +131,6 @@ internal object KeyCodec {
                 FieldP.reduceSelf(x3p7)
                 if (U256.cmp(y2, x3p7) != 0) return false
                 if (pubkey[0] != 0x04.toByte() && (y.l0 and 1L == 1L) != (pubkey[0] == 0x07.toByte())) return false
-                outX.copyFrom(x)
-                outY.copyFrom(y)
                 true
             }
 
@@ -135,6 +138,22 @@ internal object KeyCodec {
                 false
             }
         }
+
+    /**
+     * The 33-byte compressed form of a 33- or 65-byte (or hybrid) public key, or null if it is not
+     * a point on the curve. A valid key's bytes already are its x, and y's parity is the low bit
+     * of its last byte (y is canonical) or its prefix, so the output is copied, not re-encoded:
+     * the only allocation is the result.
+     */
+    fun compress(pubkey: ByteArray): ByteArray? {
+        val s = scratch.get()
+        if (!parsePublicKey(pubkey, s[2], s[3])) return null
+        if (pubkey.size == 33) return pubkey.copyOf()
+        val r = ByteArray(33)
+        r[0] = if (pubkey[64].toInt() and 1 == 0) 0x02 else 0x03
+        pubkey.copyInto(r, 1, 1, 33)
+        return r
+    }
 
     /** Serialize as 65-byte uncompressed: 04 || x (32 bytes) || y (32 bytes). */
     fun serializeUncompressed(

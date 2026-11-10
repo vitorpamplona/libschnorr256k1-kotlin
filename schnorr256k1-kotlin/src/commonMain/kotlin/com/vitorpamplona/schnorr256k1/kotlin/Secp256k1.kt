@@ -162,12 +162,7 @@ internal object Secp256k1 {
      * 33-byte compressed form of a 33- or 65-byte (or hybrid) public key. Validates it, as
      * libsecp256k1 does: a key that is not on the curve fails instead of being re-encoded.
      */
-    fun pubKeyCompress(pubkey: ByteArray): ByteArray {
-        val x = Fe4()
-        val y = Fe4()
-        require(KeyCodec.parsePublicKey(pubkey, x, y)) { "Invalid public key: size=${pubkey.size}" }
-        return KeyCodec.serializeCompressed(x, y)
-    }
+    fun pubKeyCompress(pubkey: ByteArray): ByteArray = requireNotNull(KeyCodec.compress(pubkey)) { "Invalid public key: size=${pubkey.size}" }
 
     /**
      * Verify that a byte array is a valid secret key (32 bytes, 0 < value < n).
