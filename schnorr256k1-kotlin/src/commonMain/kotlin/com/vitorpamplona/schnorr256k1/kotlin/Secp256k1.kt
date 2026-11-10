@@ -85,6 +85,11 @@ internal object Secp256k1 {
     private val ZERO_MASK: ByteArray = sha256(AUX_PREFIX + ByteArray(32))
     private val NONCE_PREFIX: ByteArray = sha256("BIP0340/nonce".encodeToByteArray()).let { it + it }
 
+    // The tagged hashes of buffers that start with those prefixes (a midstate on Kotlin/Native).
+    private val CHALLENGE_HASH = TaggedHash(CHALLENGE_PREFIX)
+    private val AUX_HASH = TaggedHash(AUX_PREFIX)
+    private val NONCE_HASH = TaggedHash(NONCE_PREFIX)
+
     // ==================== Pubkey decompression cache ====================
     //
     // liftX (square root on secp256k1) costs ~280 field ops per call. In Nostr,
@@ -342,7 +347,7 @@ internal object Secp256k1 {
             // Build AUX_PREFIX + auxrand in scratch hashBuf (avoids concatenation alloc)
             AUX_PREFIX.copyInto(sc.hashBuf, 0, 0, 64)
             auxrand.copyInto(sc.hashBuf, 64, 0, 32)
-            sha256Into(sc.bytesTmp2, sc.hashBuf, 96)
+            AUX_HASH.hashInto(sc.bytesTmp2, sc.hashBuf, 96)
         } else {
             ZERO_MASK.copyInto(sc.bytesTmp2)
         }
@@ -360,7 +365,7 @@ internal object Secp256k1 {
         tBytes.copyInto(nonceInput, 64, 0, 32)
         pBytes.copyInto(nonceInput, 96, 0, 32)
         data.copyInto(nonceInput, 128, 0, data.size)
-        sha256Into(sc.bytesTmp2, nonceInput, nonceLen) // rand → bytesTmp2
+        NONCE_HASH.hashInto(sc.bytesTmp2, nonceInput, nonceLen) // rand → bytesTmp2
         U256.fromBytesInto(sc.scalarTmp1, sc.bytesTmp2, 0)
         ScalarN.reduceTo(sc.scalarTmp1, sc.scalarTmp1)
         val k0 = sc.scalarTmp1
@@ -391,7 +396,7 @@ internal object Secp256k1 {
         U256.toBytesInto(rx, chalInput, 64)
         pBytes.copyInto(chalInput, 96, 0, 32)
         data.copyInto(chalInput, 128, 0, data.size)
-        sha256Into(sc.bytesTmp1, chalInput, chalLen) // eHash → bytesTmp1
+        CHALLENGE_HASH.hashInto(sc.bytesTmp1, chalInput, chalLen) // eHash → bytesTmp1
         U256.fromBytesInto(sc.scalarTmp3, sc.bytesTmp1, 0)
         ScalarN.reduceTo(sc.scalarTmp3, sc.scalarTmp3)
         val e = sc.scalarTmp3
@@ -507,7 +512,7 @@ internal object Secp256k1 {
         signature.copyInto(hashInput, 64, 0, 32)
         pub.copyInto(hashInput, 96, 0, 32)
         data.copyInto(hashInput, 128, 0, data.size)
-        val eHash = sha256Into(sc.bytesTmp1, hashInput, hashLen)
+        val eHash = CHALLENGE_HASH.hashInto(sc.bytesTmp1, hashInput, hashLen)
         // Reuse zInv for e (safe: zInv not used until toAffine, which we skip here)
         val e = sc.zInv
         U256.fromBytesInto(e, eHash, 0)
@@ -714,6 +719,7 @@ internal object Secp256k1 {
     // ==================== Same-Pubkey Batch Verification ====================
 
     private val BATCH_PREFIX: ByteArray = sha256("BIP0340/batch".encodeToByteArray()).let { it + it }
+    private val BATCH_HASH = TaggedHash(BATCH_PREFIX)
 
     /** Signatures per Strauss pass: their wNAF tables share one inversion and 128 doublings. */
     private const val BATCH_CHUNK = 64
@@ -828,7 +834,7 @@ internal object Secp256k1 {
             sig.copyInto(seedInput, off)
             off += 64
         }
-        sha256Into(b.counter, seedInput, seedLen) // counter = seed || 4-byte block index
+        BATCH_HASH.hashInto(b.counter, seedInput, seedLen) // counter = seed || 4-byte block index
 
         val r = sc.scalarTmp1
         val s = sc.scalarTmp2
@@ -858,7 +864,7 @@ internal object Secp256k1 {
                 sig.copyInto(hashInput, 64, 0, 32)
                 pub.copyInto(hashInput, 96, 0, 32)
                 msg.copyInto(hashInput, 128, 0, msg.size)
-                sha256Into(sc.bytesTmp1, hashInput, hashLen)
+                CHALLENGE_HASH.hashInto(sc.bytesTmp1, hashInput, hashLen)
                 U256.fromBytesInto(e, sc.bytesTmp1, 0)
                 ScalarN.reduceTo(e, e)
 
