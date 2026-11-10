@@ -716,16 +716,21 @@ internal object Secp256k1 {
     private val BATCH_PREFIX: ByteArray = sha256("BIP0340/batch".encodeToByteArray()).let { it + it }
 
     /** Signatures per Strauss pass: their wNAF tables share one inversion and 128 doublings. */
-    private const val BATCH_CHUNK = 32
+    private const val BATCH_CHUNK = 64
 
-    /** Odd multiples R, 3R, …, 15R per point: wNAF window 5. */
-    private const val BATCH_TABLE = 8
-    private const val BATCH_WINDOW = 5
+    /** Odd multiples R, 3R, …, (2·BATCH_TABLE − 1)R per point, for wNAF window BATCH_WINDOW. */
+    private const val BATCH_WINDOW = 4
+    private const val BATCH_TABLE = 1 shl (BATCH_WINDOW - 2)
     private const val BATCH_COEF_BITS = 128
 
     /** Per-thread buffers for [verifySchnorrBatch], made on a thread's first batch (~80 KB). */
     private class BatchScratch {
         val jac = Array(BATCH_CHUNK * BATCH_TABLE) { MutablePoint() }
+        val rAff = Array(BATCH_CHUNK) { AffinePoint() }
+        val r1 = Fe4()
+        val rJac = MutablePoint()
+        val z2 = Fe4()
+        val z3 = Fe4()
         val aff = Array(BATCH_CHUNK * BATCH_TABLE) { AffinePoint() }
         val prods = Array(BATCH_CHUNK * BATCH_TABLE) { Fe4() }
         val wnaf = Array(BATCH_CHUNK) { IntArray(BATCH_COEF_BITS + BATCH_WINDOW + 1) }
@@ -772,10 +777,11 @@ internal object Secp256k1 {
      * cancel means finding a weight before it is known, which takes about 2¹²⁸ hashes.
      *
      * The left side is one Shamir mulDoubleG. The right side is a Strauss multi-scalar
-     * multiplication in chunks of [BATCH_CHUNK]: each Rᵢ gets a wNAF-5 table of odd multiples,
-     * made affine with one inversion per chunk, and the chunk's points share ~130 doublings.
-     * Per signature: one liftX, one SHA-256 for eᵢ, half of one for aᵢ, ~7 full and ~22 mixed
-     * point additions, against ~130 doublings and a table for a single verify.
+     * multiplication in chunks of [BATCH_CHUNK]: each Rᵢ gets a wNAF table of [BATCH_TABLE] odd
+     * multiples (window [BATCH_WINDOW]), built with mixed additions and made affine with one
+     * inversion per chunk, and the chunk's points share ~130 doublings. Per signature: one liftX,
+     * one SHA-256 for eᵢ, half of one for aᵢ, and ~29 mixed point additions (3 for the table),
+     * against ~130 doublings and a table for a single verify.
      *
      * @param pub 32-byte x-only public key (same for all signatures)
      * @param signatures list of 64-byte signatures (R.x || s)
@@ -856,16 +862,15 @@ internal object Secp256k1 {
                 U256.fromBytesInto(e, sc.bytesTmp1, 0)
                 ScalarN.reduceTo(e, e)
 
-                if (!KeyCodec.liftX(rx, ry, r, sc.zInv)) return false
-
                 if (i == 0) {
-                    // a₁ = 1
+                    // a₁ = 1. R₁ is not lifted: the check at the end compares with it instead.
                     ScalarN.addTo(b.sSum, b.sSum, s)
                     ScalarN.addTo(b.eSum, b.eSum, e)
-                    b.rSum.setAffine(rx, ry)
+                    b.r1.copyFrom(r)
                     b.wnafLen[0] = 0
                     continue
                 }
+                if (!KeyCodec.liftX(rx, ry, r, sc.zInv)) return false
                 batchWeight(b, i)
                 ScalarN.mulTo(b.term, b.coef, s, b.wide)
                 ScalarN.addTo(b.sSum, b.sSum, b.term)
@@ -877,16 +882,15 @@ internal object Secp256k1 {
                 b.wnafLen[j] = len
                 if (len > maxLen) maxLen = len
 
-                // Odd multiples Rᵢ, 3Rᵢ, …, 15Rᵢ (Jacobian), made affine per chunk below.
-                val base = j * BATCH_TABLE
-                b.jac[base].setAffine(rx, ry)
-                ECPoint.doublePoint(b.two, b.jac[base], sc)
-                for (k in 1 until BATCH_TABLE) ECPoint.addPoints(b.jac[base + k], b.jac[base + k - 1], b.two, sc)
+                // Its odd multiples are built for the whole chunk below (batchOddMultiples).
+                b.rAff[j].x.copyFrom(rx)
+                b.rAff[j].y.copyFrom(ry)
             }
 
-            val first = if (chunkStart == 0) 1 else 0 // R₁ went straight into rSum
+            val first = if (chunkStart == 0) 1 else 0 // R₁ is checked at the end, not summed
             val count = chunkEnd - chunkStart
             if (count > first) {
+                batchOddMultiples(b, first, count, sc)
                 batchTablesToAffine(b, first * BATCH_TABLE, count * BATCH_TABLE, sc)
 
                 // Strauss: acc = Σ aᵢ·Rᵢ over the chunk, sharing the doublings.
@@ -917,13 +921,24 @@ internal object Secp256k1 {
             chunkStart = chunkEnd
         }
 
-        // Q = (Σaᵢsᵢ)·G − (Σaᵢeᵢ)·P; valid iff Q == Σ aᵢ·Rᵢ.
+        // Q = (Σaᵢsᵢ)·G − (Σaᵢeᵢ)·P − Σᵢ≥₂ aᵢ·Rᵢ must be R₁ = lift_x(r₁): x = r₁ and an even y,
+        // the same check a single verify makes of its R. So R₁ costs an inversion, not a square root
+        // (as libschnorr256k1's batch). An x on the curve equal to r₁ also means r₁ lifts.
         ScalarN.negTo(b.eSum, b.eSum)
         sc.entryPoint.setAffine(px, py)
         ECPoint.mulDoubleG(b.q, b.sSum, sc.entryPoint, b.eSum)
         FieldP.neg(b.rSum.y, b.rSum.y)
         ECPoint.addPoints(b.sum, b.q, b.rSum, sc)
-        return b.sum.isInfinity()
+        if (b.sum.isInfinity()) return false
+        val w = sc.w
+        FieldP.inv(b.zInv, b.sum.z)
+        FieldP.sqr(b.zInv2, b.zInv, w)
+        FieldP.mul(b.zInv3, b.zInv2, b.zInv, w)
+        FieldP.mul(b.inv, b.sum.x, b.zInv2, w)
+        FieldP.reduceSelf(b.inv)
+        if (U256.cmp(b.inv, b.r1) != 0) return false
+        FieldP.mul(b.negY, b.sum.y, b.zInv3, w)
+        return KeyCodec.hasEvenY(b.negY)
     }
 
     /**
@@ -946,6 +961,38 @@ internal object Secp256k1 {
         b.coefBlock.copyInto(b.coefBytes, 16, (i and 1) * 16, (i and 1) * 16 + 16)
         U256.fromBytesInto(b.coef, b.coefBytes, 0)
         if (b.coef.isZero()) b.coef.l0 = 1L
+    }
+
+    /**
+     * Rⱼ, 3Rⱼ, …, (2·BATCH_TABLE − 1)Rⱼ in b.jac for chunk entries [from, to), from b.rAff, with
+     * mixed additions (as libschnorr256k1's ecmult_odd_multiples_affine). D = 2Rⱼ = (X, Y, Z) is
+     * affine on the isomorphic curve y² = x³ + 7·Z⁶, where (x, y) ↦ (x·Z², y·Z³) sends D to (X, Y)
+     * and Rⱼ to (x·Z², y·Z³). So each odd multiple there is one mixed addition of (X, Y), whose
+     * formulas do not use the curve constant, and a point (X', Y', Z') there is (X', Y', Z'·Z) on
+     * secp256k1. [batchTablesToAffine] then makes them affine with one inversion.
+     */
+    private fun batchOddMultiples(
+        b: BatchScratch,
+        from: Int,
+        to: Int,
+        sc: PointScratch,
+    ) {
+        val w = sc.w
+        for (j in from until to) {
+            val r = b.rAff[j]
+            b.rJac.setAffine(r.x, r.y)
+            ECPoint.doublePoint(b.two, b.rJac, sc) // D = 2R
+            FieldP.sqr(b.z2, b.two.z, w)
+            FieldP.mul(b.z3, b.z2, b.two.z, w)
+            val base = j * BATCH_TABLE
+            val t0 = b.jac[base]
+            FieldP.mul(t0.x, r.x, b.z2, w)
+            FieldP.mul(t0.y, r.y, b.z3, w)
+            t0.z.setZero()
+            t0.z.l0 = 1L
+            for (k in 1 until BATCH_TABLE) ECPoint.addMixed(b.jac[base + k], b.jac[base + k - 1], b.two.x, b.two.y, sc)
+            for (k in 0 until BATCH_TABLE) FieldP.mul(b.jac[base + k].z, b.jac[base + k].z, b.two.z, w)
+        }
     }
 
     /** Montgomery's trick over b.jac[from until to] into b.aff: one inversion for the chunk. */
