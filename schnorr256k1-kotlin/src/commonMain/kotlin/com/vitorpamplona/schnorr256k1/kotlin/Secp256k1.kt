@@ -72,6 +72,9 @@ import kotlin.concurrent.atomics.ExperimentalAtomicApi
  *   - No constant-time guarantees (not needed for Nostr)
  */
 internal object Secp256k1 {
+    /** b = 7 in y² = x³ + 7. */
+    private val CURVE_B = Fe4(7L, 0L, 0L, 0L)
+
     // ==================== Cached BIP-340 tag hash prefixes ====================
     //
     // BIP-340 uses "tagged hashes": SHA256(SHA256(tag) || SHA256(tag) || message).
@@ -593,10 +596,10 @@ internal object Secp256k1 {
      * ECDH x-only multiplication: computes the x-coordinate of scalar · P.
      *
      * Optimized for the Nostr ECDH use case (NIP-04, NIP-44) where the caller only
-     * needs the x-coordinate of the shared secret. This avoids the expensive square
-     * root (~267 field ops) needed to decompress the y-coordinate from a compressed
-     * public key, because k·(x,y) and k·(x,-y) produce the same x-coordinate
-     * (negating a point only flips y: k·(-P) = -(k·P), and negation preserves x).
+     * needs the x-coordinate of the shared secret. k·(x,y) and k·(x,-y) have the same x
+     * (k·(-P) = -(k·P)), so either lift of x gives the answer, and neither is computed: the
+     * multiply runs on an isomorphic curve (below), which replaces the square root (~266 field
+     * ops) with a Jacobi-symbol check that x is on the curve.
      *
      * @param xOnlyPub 32-byte x-only public key
      * @param scalar 32-byte scalar (private key)
@@ -614,15 +617,30 @@ internal object Secp256k1 {
         U256.fromBytesInto(k, scalar, 0)
         require(ScalarN.isValid(k))
 
-        // Compute y = sqrt(x³ + 7). We need SOME valid y for EC point operations,
-        // but the result's x-coordinate is the same regardless of y sign.
-        check(KeyCodec.liftX(sc.entryPx, sc.entryPy, sc.entryTmp, sc.entryTmp2)) {
-            "Not a valid x-coordinate on secp256k1"
-        }
-
+        // No square root for y (libsecp256k1's ecmult_const_xonly, after Peter Dettman). With
+        // g = x³ + 7, the point (g·x, g²) is on y² = x³ + 7·g³, which is secp256k1 scaled by
+        // u = √g (x' = u²x, y' = u³y) when g is a square, i.e. when x is on the curve. The doubling
+        // and addition formulas never use b = 7, so the multiply runs on that curve as is, and the
+        // result's x is x'/g. So x is checked with a Jacobi symbol, and y is never computed.
+        val x = sc.entryTmp
+        val g = sc.entryTmp2
+        FieldP.sqr(g, x)
+        FieldP.mul(g, g, x)
+        FieldP.add(g, g, CURVE_B) // g = x³ + 7
+        check(FieldP.isSquare(g)) { "Not a valid x-coordinate on secp256k1" }
+        FieldP.mul(sc.entryPx, g, x)
+        FieldP.sqr(sc.entryPy, g)
         sc.entryPoint.setAffine(sc.entryPx, sc.entryPy)
         ECPoint.mul(sc.entryResult, sc.entryPoint, k, sc)
-        check(ECPoint.toAffineX(sc.entryResult, sc.entryPx, sc))
+        // x = X / (Z² · g): one inversion for both the Jacobian Z and the scaling.
+        val r = sc.entryResult
+        check(!r.isInfinity())
+        val zg = sc.entryPy
+        FieldP.sqr(zg, r.z)
+        FieldP.mul(zg, zg, g)
+        FieldP.inv(zg, zg)
+        FieldP.mul(sc.entryPx, r.x, zg)
+        FieldP.reduceSelf(sc.entryPx)
         return U256.toBytes(sc.entryPx)
     }
 

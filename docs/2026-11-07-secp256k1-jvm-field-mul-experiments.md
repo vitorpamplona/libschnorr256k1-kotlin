@@ -130,10 +130,34 @@ registers the way LLVM does, which is a much larger change than a match rule.
 
 ## Next candidates
 
-1. Fewer multiplies: Karatsuba at the 2x2-limb level trades multiplies for additions; worth one
-   measurement now that additions are cheaper.
+1. ~~Fewer multiplies: Karatsuba at the 2x2-limb level~~: measured on 2026-11-10, slower (below).
 2. Android/ART: re-measure all of the above on a device; ART's code generation differs from
    C2's, and `uLtInline` is common code.
+
+## Experiment: Karatsuba (2026-11-10)
+
+Subtractive Karatsuba on 128-bit halves: (A0 - A1)(B1 - B0) + A0B0 + A1B1 for the middle term, so
+three 2x2-limb products (12 limb products, 24 JVM multiplies) instead of 16 (32), plus about 30
+more additions with their carry compares and two conditional 128-bit negations. Checked equal to
+`U256.mulWide` on 1.07 million products, edge values included. Multiply + `reduceWide` in a
+dependent chain, 15 alternating medians, x86-64 VM:
+
+| | `mulWide` | Karatsuba |
+|---|---|---|
+| JVM (JDK 21) | 31.9 ns (p25-p75 31.7-32.6) | 39.8 ns (39.5-42.3), +25% |
+| Kotlin/Native | 16.5 ns (15.7-16.7) | 20.7 ns (18.9-21.3), +25% |
+
+The carries cost more than the four products they save, on both. Dropped.
+
+## Where ECDH's time goes on the JVM (2026-11-10)
+
+Java Flight Recorder, 20 s of `ecdhXOnly` (1,786 samples): `U256.mulWide` 35%, `U256.sqrWide` 17%,
+`FieldP.reduceWide` 13%, the multiply-high and carry helpers about 10%, sub/add/half about 11%,
+the inversion about 5%, and `ECPoint`'s own code under 3%. Raising C2's inline limits
+(`-XX:MaxInlineSize=200 -XX:FreqInlineSize=700 -XX:InlineSmallCode=8000`) changed nothing, though
+`reduceWide` (510 bytes of bytecode) is "hot method too big" and `add`/`sub` are "callee is too
+large" at many sites. The JVM's ~2x on arbitrary-point multiplication is this document's field
+multiply, not the point code.
 
 ## Appendix: the C2 adc patch
 

@@ -344,6 +344,25 @@ internal object FieldP {
         mul(out, out, a, w)
     }
 
+    /** Per thread: [isSquare]'s reduced copy, then its fallback's root. */
+    private val squareTmp = ScratchLocal { Array(2) { Fe4() } }
+
+    /**
+     * Whether [a] is a square mod p (0 is), by its Jacobi symbol: a safegcd pass about as fast as
+     * an inversion, where [sqrt] costs about 270 field operations. Falls back to [sqrt] in the
+     * extremely rare case the Jacobi computation does not settle, as libsecp256k1's
+     * `secp256k1_fe_is_square_var` does. Variable time: for public values.
+     */
+    fun isSquare(a: Fe4): Boolean {
+        val s = squareTmp.get()
+        val t = s[0]
+        t.copyFrom(a)
+        reduceSelf(t) // [0, p): the Jacobi symbol needs gcd(t, p) = 1, so 0 is handled here
+        if (t.isZero()) return true
+        val j = SafeGcd.jacobiMaybe(t, SafeGcd.P)
+        return if (j != 0) j > 0 else sqrt(s[1], t)
+    }
+
     fun sqrt(
         out: Fe4,
         a: Fe4,
