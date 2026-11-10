@@ -90,26 +90,22 @@ caches publish their entries with release/acquire ordering.
 - **`privkeyTweakAdd` validates its inputs**, as libsecp256k1 does: the secret key in [1, n), the
   tweak below n. It used to reduce both mod n first, so a tweak of n (≡ 0) returned the key.
 
-## Differences from libschnorr256k1-kmp found so far
+## Differences from libschnorr256k1-kmp
 
-The JVM tests call both libraries side by side (`Schnorr256k1ApiParityTest`) and found these
-differences from libschnorr256k1 (C), each reproduced against libsecp256k1:
+The JVM tests call both libraries side by side (`Schnorr256k1ApiParityTest`), with libsecp256k1
+as the referee where they disagree. They take libschnorr256k1-kmp from JitPack, whose builds have the C
+library's JNI build for linux-x86_64 only, so on macOS the C side of these tests is skipped. One difference from libschnorr256k1-kmp 1.1.0 remains:
 
-- `schnorrSignXOnly` (`secp256k1c_schnorr_sign_xonly`) assumes the key has even y, and returns an
-  invalid signature for the half of all keys whose public key has odd y.
-- `pubkeyTweakMul`'s scalar multiplication shares an x-keyed table cache with verification. After
-  a tweak-mul of an odd-y key, verify rejects valid signatures for that key's x-only form; after a
-  verify, the tweak-mul of the odd-y key returns the negated point.
 - `privkeyTweakAdd` (`secp256k1c_privkey_tweak_add`) reduces its inputs mod n before checking
   them, so it accepts a secret key of 0 or above n and a tweak of n or above, all of which
   libsecp256k1 rejects (seen on x86-64; the ARM64 build answered differently, which is how the
   first macOS release run found it). This library follows libsecp256k1, and
   `Schnorr256k1ApiParityTest` referees invalid input against it, printing where C differs.
-- Signing with no aux randomness (`auxrand = null`): libschnorr256k1-kmp 1.0.5 uses t = d for the
-  nonce where BIP-340 and libsecp256k1 take no aux as 32 zero bytes, t = d XOR H_aux(0^32). Both
-  are valid signatures, with different bytes. This library follows BIP-340
-  (`Secp256k1CrossValidationTest.signSchnorrWithoutAuxMatchesAcinq`), and libschnorr256k1 changes
-  the same way in [vitorpamplona/libschnorr256k1#11](https://github.com/vitorpamplona/libschnorr256k1/pull/11).
+
+libschnorr256k1-kmp 1.0.5 differed in three more ways, all fixed in 1.1.0 and now compared
+directly: `schnorrSignXOnly` gave invalid signatures for keys with odd y, a tweak-mul of an odd-y
+key broke verification of its x-only form (and the reverse), and a null `auxrand` did not follow
+BIP-340.
 
 ## Build and test
 

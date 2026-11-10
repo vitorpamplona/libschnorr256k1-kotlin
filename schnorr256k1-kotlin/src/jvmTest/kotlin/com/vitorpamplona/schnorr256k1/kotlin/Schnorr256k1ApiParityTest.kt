@@ -21,6 +21,8 @@
 package com.vitorpamplona.schnorr256k1.kotlin
 
 import fr.acinq.secp256k1.Secp256k1
+import org.junit.Assume
+import org.junit.Before
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -36,6 +38,25 @@ import com.vitorpamplona.schnorr256k1.Schnorr256k1 as CSchnorr256k1
 class Schnorr256k1ApiParityTest {
     private val k = Schnorr256k1
     private val c = CSchnorr256k1
+
+    /**
+     * libschnorr256k1-kmp comes from JitPack, whose builds carry the JNI library for linux-x86_64
+     * only: on macOS (CI's arm64 JVM job, the release run) these comparisons are skipped, not failed.
+     */
+    @Before
+    fun needsTheCLibrary() {
+        val loadable =
+            try {
+                c.seckeyVerify(ByteArray(32) { 1 })
+                true
+            } catch (_: UnsatisfiedLinkError) {
+                false
+            } catch (_: IllegalStateException) {
+                false
+            }
+        Assume.assumeTrue("libschnorr256k1's JNI library is not in this platform's libschnorr256k1-kmp build", loadable)
+    }
+
     private val acinq = Secp256k1.get()
     private val r = Random(0xC0DE)
 
@@ -74,21 +95,22 @@ class Schnorr256k1ApiParityTest {
 
             val sig = c.schnorrSign(msg, sk, aux)!!
             same("schnorrSign", k.schnorrSign(msg, sk, aux), sig)
-            // Not compared with C's schnorrSignXOnly: libschnorr256k1's secp256k1c_schnorr_sign_xonly
-            // assumes even y and returns invalid signatures for odd-y keys. Kotlin's must equal
-            // the full signature; SignEntryPointsTest checks that on every platform.
-            same("schnorrSignXOnly", k.schnorrSignXOnly(msg, sk, xonly, aux), sig)
-            same("schnorrSignWithPubKey", k.schnorrSignWithPubKey(msg, sk, comp, aux), sig)
+            same("schnorrSign, null aux", k.schnorrSign(msg, sk, null), c.schnorrSign(msg, sk, null))
+            same("schnorrSignXOnly", k.schnorrSignXOnly(msg, sk, xonly, aux), c.schnorrSignXOnly(msg, sk, xonly, aux))
+            same("schnorrSignXOnly is schnorrSign", k.schnorrSignXOnly(msg, sk, xonly, aux), sig)
+            same("schnorrSignWithPubKey", k.schnorrSignWithPubKey(msg, sk, comp, aux), c.schnorrSignWithPubKey(msg, sk, comp, aux))
+            same("schnorrSignWithPubKey is schnorrSign", k.schnorrSignWithPubKey(msg, sk, comp, aux), sig)
             assertTrue(k.schnorrVerify(sig, msg, xonly))
             assertTrue(k.schnorrVerifyFast(sig, msg, xonly))
             val bad = sig.copyOf().also { b -> b[63] = (b[63] + 1).toByte() }
             assertEquals(c.schnorrVerify(bad, msg, xonly), k.schnorrVerify(bad, msg, xonly))
 
             same("privkeyTweakAdd", k.privkeyTweakAdd(sk, tweak), c.privkeyTweakAdd(sk, tweak))
-            // Refereed by ACINQ, not C: libschnorr256k1's ecmult shares an x-keyed table cache with
-            // verify, so after a verify for xonly its tweak-mul of the odd-y key is negated.
-            same("pubkeyTweakMul 65", k.pubkeyTweakMul(pub, tweak), acinq.pubKeyTweakMul(pub, tweak))
-            same("pubkeyTweakMul 33", k.pubkeyTweakMul(comp, tweak), acinq.pubKeyCompress(acinq.pubKeyTweakMul(comp, tweak)))
+            // After a verify for xonly, so an x-keyed table cache would show here (1.0.5's did).
+            same("pubkeyTweakMul 65", k.pubkeyTweakMul(pub, tweak), c.pubkeyTweakMul(pub, tweak))
+            same("pubkeyTweakMul 33", k.pubkeyTweakMul(comp, tweak), c.pubkeyTweakMul(comp, tweak))
+            same("pubkeyTweakMul 33, libsecp256k1", k.pubkeyTweakMul(comp, tweak), acinq.pubKeyCompress(acinq.pubKeyTweakMul(comp, tweak)))
+            assertTrue(c.schnorrVerify(sig, msg, xonly), "C verify after a tweak-mul of the key")
             same("ecdhXOnly", k.ecdhXOnly(xonly, tweak), c.ecdhXOnly(xonly, tweak))
             same("sha256", k.sha256(msg), c.sha256(msg))
             same("taggedHash", k.taggedHash("BIP0340/challenge", msg), c.taggedHash("BIP0340/challenge", msg))
@@ -106,6 +128,16 @@ class Schnorr256k1ApiParityTest {
         val tampered = sigs.toMutableList().also { it[5] = it[5].copyOf().also { b -> b[40] = (b[40] + 1).toByte() } }
         assertFalse(k.schnorrVerifyBatch(xonly, tampered, msgs))
         assertFalse(k.schnorrVerifyBatch(xonly, sigs, msgs.dropLast(1)), "size mismatch is false, not an exception")
+
+        // s + 1 on one signature and s - 1 on another keep an unweighted batch equation's sum;
+        // libschnorr256k1-kmp 1.0.5 accepted them (KI-1). Both must reject them now.
+        val one = ByteArray(32).also { it[31] = 1 }
+        val minusOne = "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364140".hexToByteArray()
+        val cancelling = sigs.map { it.copyOf() }
+        k.privkeyTweakAdd(cancelling[0].copyOfRange(32, 64), one)!!.copyInto(cancelling[0], 32)
+        k.privkeyTweakAdd(cancelling[1].copyOfRange(32, 64), minusOne)!!.copyInto(cancelling[1], 32)
+        assertFalse(k.schnorrVerifyBatch(xonly, cancelling, msgs))
+        assertFalse(c.schnorrVerifyBatch(xonly, cancelling, msgs))
     }
 
     /** libsecp256k1's answer (ACINQ throws on invalid input), or null. */

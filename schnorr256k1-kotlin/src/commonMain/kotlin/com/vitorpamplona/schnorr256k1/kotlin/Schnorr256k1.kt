@@ -74,7 +74,7 @@ public object Schnorr256k1 {
 
     /**
      * BIP-340 signature with the 33-byte compressed public key (`02`/`03 || x`) already known:
-     * skips deriving it, about half the work of [schnorrSign]. Not in libschnorr256k1-kmp's API.
+     * skips deriving it, about half the work of [schnorrSign].
      * The caller must pass [seckey]'s own public key; a wrong one gives an invalid signature.
      */
     public fun schnorrSignWithPubKey(
