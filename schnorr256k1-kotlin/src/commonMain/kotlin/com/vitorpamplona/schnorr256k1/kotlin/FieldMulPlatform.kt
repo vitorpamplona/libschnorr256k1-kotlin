@@ -464,39 +464,27 @@ internal inline fun reduceWideInline(
     out.l3 = s2
     carry = hcHi + c1 + c2
 
-    // Round 2: fold carry × C
-    if (carry != 0L) {
-        val ccLo = carry * c
-        val ccHi = umulh(carry, c)
-        s1 = out.l0 + ccLo
-        c1 = if (uLtInline(s1, out.l0)) 1L else 0L
-        out.l0 = s1
-        var prop = ccHi + c1
-        if (prop != 0L) {
-            s1 = out.l1 + prop
-            prop = if (uLtInline(s1, out.l1)) 1L else 0L
-            out.l1 = s1
-            if (prop != 0L) {
-                s1 = out.l2 + prop
-                prop = if (uLtInline(s1, out.l2)) 1L else 0L
-                out.l2 = s1
-                if (prop != 0L) {
-                    s1 = out.l3 + prop
-                    prop = if (uLtInline(s1, out.l3)) 1L else 0L
-                    out.l3 = s1
-                }
-            }
-        }
-        if (prop != 0L) {
-            s1 = out.l0 + c
-            c1 = if (uLtInline(s1, out.l0)) 1L else 0L
-            out.l0 = s1
-            if (c1 != 0L) {
-                out.l1++
-                if (out.l1 == 0L) {
-                    out.l2++
-                    if (out.l2 == 0L) out.l3++
-                }
+    // Round 2: fold carry × C (carry <= C + 1, ccHi <= 3), as FieldP.reduceWide: past limb 0 a
+    // coin flip, folded in without a branch; past limb 1 rare, so that branch is predictable.
+    val ccLo = carry * c
+    val ccHi = umulh(carry, c)
+    val l0 = out.l0
+    val t0 = l0 + ccLo
+    c1 = if (uLtInline(t0, l0)) 1L else 0L
+    val prop = ccHi + c1
+    out.l0 = t0
+    val t1 = out.l1 + prop
+    out.l1 = t1
+    if (uLtInline(t1, prop)) {
+        out.l2++
+        if (out.l2 == 0L) {
+            out.l3++
+            if (out.l3 == 0L) {
+                // Overflow past 256 bits (2^256 ≡ C): t1 < 4, so adding C to limb 0 can carry into
+                // limb 1 but no further.
+                val u0 = t0 + c
+                out.l0 = u0
+                if (uLtInline(u0, t0)) out.l1 = t1 + 1
             }
         }
     }

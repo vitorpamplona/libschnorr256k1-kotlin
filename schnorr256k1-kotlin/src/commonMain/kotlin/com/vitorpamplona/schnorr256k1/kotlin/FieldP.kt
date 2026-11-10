@@ -70,22 +70,22 @@ internal object FieldP {
         a: Fe4,
         b: Fe4,
     ) {
-        val carry = U256.addTo(out, a, b)
-        if (carry != 0) {
-            // Overflow past 2^256: add 2^256 mod p = 2^32 + 977 = 0x1000003D1
-            val s1 = out.l0 + 4294968273L
-            val c1 = if (uLtInline(s1, out.l0)) 1L else 0L
-            out.l0 = s1
-            if (c1 != 0L) {
-                out.l1++
-                if (out.l1 == 0L) {
-                    out.l2++
-                    if (out.l2 == 0L) {
-                        out.l3++
-                        // a + b >= 2^257 - C (both inputs in [p, 2^256)): the fold carried out of
-                        // 2^256 again. What is left is below C, so one more C cannot carry.
-                        if (out.l3 == 0L) out.l0 += 4294968273L
-                    }
+        // The carry out of 2^256 is a coin flip for unreduced inputs, so a branch on it mispredicts
+        // about half the time: fold carry × C (2^256 mod p) unconditionally. Whether that fold carries
+        // past limb 0 is rare (limb 0 within C of 2^64), so that branch is predictable.
+        val carry = U256.addTo(out, a, b).toLong()
+        val l0 = out.l0
+        val s0 = l0 + ((-carry) and C)
+        out.l0 = s0
+        if (uLtInline(s0, l0)) {
+            out.l1++
+            if (out.l1 == 0L) {
+                out.l2++
+                if (out.l2 == 0L) {
+                    out.l3++
+                    // a + b >= 2^257 - C (both inputs in [p, 2^256)): the fold carried out of
+                    // 2^256 again, and then s0 < C, so one more C cannot carry.
+                    if (out.l3 == 0L) out.l0 = s0 + C
                 }
             }
         }
@@ -95,9 +95,8 @@ internal object FieldP {
     }
 
     /**
-     * out = a - b mod p. Specialized add-back for P = [P0, -1, -1, -1]:
-     * adding -1 to limbs 1-3 with carry=1 is identity, so only the carry=0
-     * case needs work (subtract 1 with borrow propagation). ~500 calls/verify.
+     * out = a - b mod p, ~500 calls/verify. On a borrow it adds P back as "subtract C mod 2^256"
+     * (P = 2^256 - C), once or twice, without branching on the borrow itself.
      *
      * NOTE: unlike fe_add, fe_sub CANNOT be lazy because the unsigned-wrapped
      * underflow value (a - b + 2^256) differs from (a - b + P) by C = 2^32+977.
@@ -110,33 +109,19 @@ internal object FieldP {
         a: Fe4,
         b: Fe4,
     ) {
-        val borrow = U256.subTo(out, a, b)
-        if (borrow != 0) {
-            // out = a - b + 2^256. Adding P subtracts C mod 2^256, which is a - b + p when that is
-            // not negative. It is when b >= a + p + 1 (b unreduced, a below C): then out < C,
-            // and it takes 2p (a second P).
-            val twice = out.l3 == 0L && out.l2 == 0L && out.l1 == 0L && uLtInline(out.l0, 4294968273L)
-            addP(out)
-            if (twice) addP(out)
-        }
-    }
-
-    /** out += P mod 2^256 (that is, out -= C): limb 0 plus P0, the upper limbs plus -1 with carry. */
-    @Suppress("NOTHING_TO_INLINE")
-    private inline fun addP(out: Fe4) {
-        val s0 = out.l0 + P0
-        val c0 = if (uLtInline(s0, out.l0)) 1L else 0L
-        out.l0 = s0
-        if (c0 == 0L) {
-            if (out.l1 != 0L) {
-                out.l1--
-            } else {
-                out.l1 = -1L
-                if (out.l2 != 0L) {
-                    out.l2--
-                } else {
-                    out.l2 = -1L
-                    out.l3--
+        // As add: the borrow is a coin flip, so subtract borrow × C unconditionally. A borrow means
+        // out = a - b + 2^256, and subtracting C (adding P mod 2^256) gives a - b + p when that is not
+        // negative. Whether that borrows past limb 0 is rare (limb 0 below C). It wraps out of 2^256
+        // when b >= a + p + 1 (b unreduced, a below C): then out < C, and it takes C once more (2p in
+        // all), which cannot borrow again (limb 0 is then at least 2^64 - C).
+        val borrow = U256.subTo(out, a, b).toLong()
+        val l0 = out.l0
+        val t = (-borrow) and C
+        out.l0 = l0 - t
+        if (uLtInline(l0, t)) {
+            if (out.l1-- == 0L) {
+                if (out.l2-- == 0L) {
+                    if (out.l3-- == 0L) out.l0 -= C
                 }
             }
         }
@@ -442,6 +427,9 @@ internal object FieldP {
     // P[0] cached as a constant to avoid field load in the hot reduceSelf path.
     private const val P0 = -4294968273L // 0xFFFFFFFEFFFFFC2F
 
+    // 2^256 mod p = 2^32 + 977: what a carry out of 2^256 folds back in as.
+    private const val C = 4294968273L
+
     fun reduceSelf(a: Fe4) {
         // Exploit P's structure: P = [P0, -1, -1, -1] where P[1..3] = 0xFFFFFFFFFFFFFFFF.
         // a >= P only if a.l3==a.l2==a.l1==-1 AND a.l0 >= P[0]. The first check (a.l3==-1)
@@ -516,41 +504,28 @@ internal object FieldP {
         out.l3 = s2
         carry = hcHi + c1 + c2
 
-        // Round 2: if carry > 0, fold carry × C back in
-        if (carry != 0L) {
-            val ccLo = carry * c
-            val ccHi = unsignedMultiplyHigh(carry, c)
-            s1 = out.l0 + ccLo
-            c1 = if (uLtInline(s1, out.l0)) 1L else 0L
-            out.l0 = s1
-            // Propagate carry (unrolled, with early exit)
-            var prop = ccHi + c1
-            if (prop != 0L) {
-                s1 = out.l1 + prop
-                prop = if (uLtInline(s1, out.l1)) 1L else 0L
-                out.l1 = s1
-                if (prop != 0L) {
-                    s1 = out.l2 + prop
-                    prop = if (uLtInline(s1, out.l2)) 1L else 0L
-                    out.l2 = s1
-                    if (prop != 0L) {
-                        s1 = out.l3 + prop
-                        prop = if (uLtInline(s1, out.l3)) 1L else 0L
-                        out.l3 = s1
-                    }
-                }
-            }
-            // Overflow past 256 bits: 2^256 ≡ C (mod p)
-            if (prop != 0L) {
-                s1 = out.l0 + c
-                c1 = if (uLtInline(s1, out.l0)) 1L else 0L
-                out.l0 = s1
-                if (c1 != 0L) {
-                    out.l1++
-                    if (out.l1 == 0L) {
-                        out.l2++
-                        if (out.l2 == 0L) out.l3++
-                    }
+        // Round 2: fold carry × C back in (carry <= C + 1, so carry × C < 2^66 and ccHi <= 3). Whether
+        // the fold carries past limb 0 is a coin flip, so it is folded in without a branch; past
+        // limb 1 it is rare (limb 1 within 4 of 2^64), so that branch is predictable.
+        val ccLo = carry * c
+        val ccHi = unsignedMultiplyHigh(carry, c)
+        val l0 = out.l0
+        val t0 = l0 + ccLo
+        c1 = if (uLtInline(t0, l0)) 1L else 0L
+        val prop = ccHi + c1 // at most 4
+        out.l0 = t0
+        val t1 = out.l1 + prop
+        out.l1 = t1
+        if (uLtInline(t1, prop)) {
+            out.l2++
+            if (out.l2 == 0L) {
+                out.l3++
+                if (out.l3 == 0L) {
+                    // Overflow past 256 bits (2^256 ≡ C): then t1 < 4, so adding C to limb 0 can
+                    // carry into limb 1 but no further.
+                    val u0 = t0 + c
+                    out.l0 = u0
+                    if (uLtInline(u0, t0)) out.l1 = t1 + 1
                 }
             }
         }
