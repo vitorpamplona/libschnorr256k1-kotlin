@@ -54,6 +54,28 @@ class SafeGcdTest {
     }
 
     @Test
+    fun jacobiMatchesTheSquareRoot() {
+        val r = Random(0x7AC0B1)
+        val values =
+            edges(FieldP.P) + List(20_000) { Fe4(r.nextLong(), r.nextLong(), r.nextLong(), r.nextLong()) } +
+                List(5) { Fe4(FieldP.P.l0 + 1 + it, -1L, -1L, -1L) } + listOf(Fe4(0, 0, 0, 0), FieldP.P)
+        val root = Fe4()
+        val t = Fe4()
+        var squares = 0
+        for (x in values) {
+            val want = FieldP.sqrt(root, x)
+            if (want) squares++
+            assertEquals(want, FieldP.isSquare(x), "isSquare(${str(x)})")
+            t.copyFrom(x)
+            FieldP.reduceSelf(t)
+            if (t.isZero()) continue
+            // 25 rounds settle every one of these: the fallback to sqrt is not what passed them
+            assertEquals(if (want) 1 else -1, SafeGcd.jacobiMaybe(t, SafeGcd.P), "jacobi(${str(x)})")
+        }
+        assertEquals(true, squares in 9_000..11_000, "about half are squares: $squares")
+    }
+
+    @Test
     fun fieldMatchesFermat() {
         val r = Random(0x5AFE)
         val values =

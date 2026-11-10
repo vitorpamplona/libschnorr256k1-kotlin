@@ -61,6 +61,9 @@ internal object SafeGcd {
         val f = LongArray(5)
         val g = LongArray(5)
         val t = LongArray(4) // u, v, q, r
+
+        /** [jacobiMaybe]'s matrix and, in t[4], its Jacobi bit. */
+        val tj = LongArray(5)
     }
 
     private val scratch = ScratchLocal { Scratch() }
@@ -124,6 +127,120 @@ internal object SafeGcd {
         out.l1 = (d[1] ushr 2) or (d[2] shl 60)
         out.l2 = (d[2] ushr 4) or (d[3] shl 58)
         out.l3 = (d[3] ushr 6) or (d[4] shl 56)
+    }
+
+    /** libsecp256k1's JACOBI64_ITERATIONS: 25 rounds of 62 posdivsteps; more is extremely rare. */
+    private const val JACOBI_ROUNDS = 25
+
+    /**
+     * The Jacobi symbol of x modulo m (1 or -1), or 0 if 25 rounds did not settle it (extremely
+     * rare; the caller then needs another test). x in [1, m) with gcd(x, m) = 1, which for the
+     * prime p is any x in [1, p). A port of libsecp256k1's `secp256k1_jacobi64_maybe_var`.
+     */
+    fun jacobiMaybe(
+        x: Fe4,
+        m: Modulus,
+    ): Int {
+        val s = scratch.get()
+        val f = s.f
+        val g = s.g
+        val t = s.tj
+        f[0] = m.m0
+        f[1] = m.m1
+        f[2] = m.m2
+        f[3] = m.m3
+        f[4] = m.m4
+        g[0] = x.l0 and M62
+        g[1] = ((x.l0 ushr 62) or (x.l1 shl 2)) and M62
+        g[2] = ((x.l1 ushr 60) or (x.l2 shl 4)) and M62
+        g[3] = ((x.l2 ushr 58) or (x.l3 shl 6)) and M62
+        g[4] = x.l3 ushr 56
+
+        var len = 5
+        var eta = -1L
+        var jac = 0L
+        for (round in 0 until JACOBI_ROUNDS) {
+            t[4] = jac
+            // f and g mod 2^64, not 2^62: the Jacobi updates need f mod 8.
+            eta = posdivsteps62Var(eta, f[0] or (f[1] shl 62), g[0] or (g[1] shl 62), t)
+            jac = t[4]
+            updateFgVar(len, f, g, t)
+            // When f = 1, (g | f) = 1, so the symbol is the sign jac has tracked.
+            if (f[0] == 1L) {
+                var cond = 0L
+                for (j in 1 until len) cond = cond or f[j]
+                if (cond == 0L) return 1 - 2 * (jac and 1L).toInt()
+            }
+            // f and g stay non-negative here, so a zero top limb of both just drops off.
+            val cond = ((len.toLong() - 2) shr 63) or f[len - 1] or g[len - 1]
+            if (cond == 0L) len--
+        }
+        return 0
+    }
+
+    /**
+     * 62 posdivsteps on the bottom limbs (f and g swap without negating), tracking the Jacobi
+     * symbol: bit 0 of t[4] flips when (f | g) changes sign. Writes the matrix to t[0..3].
+     * libsecp256k1's `secp256k1_modinv64_posdivsteps_62_var`.
+     */
+    private fun posdivsteps62Var(
+        eta0: Long,
+        f0: Long,
+        g0: Long,
+        t: LongArray,
+    ): Long {
+        var eta = eta0
+        var u = 1L
+        var v = 0L
+        var q = 0L
+        var r = 1L
+        var f = f0
+        var g = g0
+        var jac = t[4]
+        var i = 62
+        while (true) {
+            val zeros = (g or (-1L shl i)).countTrailingZeroBits()
+            g = g ushr zeros
+            u = u shl zeros
+            v = v shl zeros
+            eta -= zeros
+            i -= zeros
+            // Dividing g by an odd power of 2 flips the symbol when f mod 8 is 3 or 5.
+            jac = jac xor (zeros.toLong() and ((f ushr 1) xor (f ushr 2)))
+            if (i == 0) break
+            val w: Long
+            if (eta < 0) {
+                eta = -eta
+                var tmp = f
+                f = g
+                g = tmp
+                tmp = u
+                u = q
+                q = tmp
+                tmp = v
+                v = r
+                r = tmp
+                // Swapping flips the symbol when both f and g are 3 mod 4.
+                jac = jac xor ((f and g) ushr 1)
+                val limit = if (eta.toInt() + 1 > i) i else eta.toInt() + 1
+                val mask = (-1L ushr (64 - limit)) and 63L
+                w = (f * g * (f * f - 2)) and mask
+            } else {
+                val limit = if (eta.toInt() + 1 > i) i else eta.toInt() + 1
+                val mask = (-1L ushr (64 - limit)) and 15L
+                val w0 = f + (((f + 1) and 4L) shl 1)
+                w = (-w0 * g) and mask
+            }
+            g += f * w
+            q += u * w
+            r += v * w
+        }
+        t[0] = u
+        t[1] = v
+        t[2] = q
+        t[3] = r
+        t[4] = jac
+        return eta
     }
 
     /** 62 divsteps on the bottom limbs; writes the transition matrix (scaled by 2^62) to t. */
