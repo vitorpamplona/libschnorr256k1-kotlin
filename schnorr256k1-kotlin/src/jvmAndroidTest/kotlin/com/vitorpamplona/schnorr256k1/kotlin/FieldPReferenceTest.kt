@@ -42,6 +42,10 @@ class FieldPReferenceTest {
     // BigInteger is much slower on ART (an emulator in CI): fewer random cases there.
     private val onAndroid = System.getProperty("java.vm.name") == "Dalvik"
     private val randomCases = if (onAndroid) 20_000 else 100_000
+    private val targetedCases = if (onAndroid) 20_000 else 100_000
+
+    // 1/2 mod p. Not BigInteger.TWO: Android has it from API 33 only, and minSdk is 26.
+    private val half = BigInteger.valueOf(2).modInverse(p)
 
     private fun limb() = if (r.nextInt(3) == 0) r.nextLong() else special[r.nextInt(special.size)]
 
@@ -72,7 +76,7 @@ class FieldPReferenceTest {
     fun addThatCarriesOutOfTwoToThe256Twice() {
         // a + b >= 2^257 - C: both within C of 2^256, so the first fold carries out again.
         val out = Fe4()
-        repeat(100_000) {
+        repeat(targetedCases) {
             val a = nearTop(4294968273L)
             val b = nearTop(4294968273L)
             FieldP.add(out, a, b)
@@ -84,7 +88,7 @@ class FieldPReferenceTest {
     fun subThatWrapsTwice() {
         // b >= a + p + 1 with a below C: the first subtraction of C wraps, and it takes 2p.
         val out = Fe4()
-        repeat(100_000) {
+        repeat(targetedCases) {
             val a = Fe4(r.nextLong(4294968273L), 0L, 0L, 0L)
             val b = nearTop(4294968273L - a.l0) // b in [2^256 - (C - a), 2^256) = [a + p, 2^256)
             FieldP.sub(out, a, b)
@@ -102,7 +106,7 @@ class FieldPReferenceTest {
         val w = Wide8()
         val out = Fe4()
         val out2 = Fe4()
-        repeat(50_000) {
+        repeat(targetedCases / 2) {
             val hi = big(fe())
             val x = BigInteger(java.lang.Long.toUnsignedString(limb()))
             val fold1 = two256 - BigInteger.ONE.shiftLeft(64) + x // limbs 1-3 all ones, limb 0 = x
@@ -147,7 +151,7 @@ class FieldPReferenceTest {
             FieldP.neg(out, a)
             check("neg", a, null, out, ba.negate())
             FieldP.half(out, a)
-            check("half", a, null, out, ba * BigInteger.TWO.modInverse(p))
+            check("half", a, null, out, ba * half)
         }
     }
 }
