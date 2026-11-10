@@ -93,7 +93,8 @@ caches publish their entries with release/acquire ordering.
 ## Differences from libschnorr256k1-kmp
 
 The JVM tests call both libraries side by side (`Schnorr256k1ApiParityTest`), with libsecp256k1
-as the referee where they disagree. One difference from libschnorr256k1-kmp 1.1.0 remains:
+as the referee where they disagree. They take libschnorr256k1-kmp from JitPack, whose builds have the C
+library's JNI build for linux-x86_64 only, so on macOS the C side of these tests is skipped. One difference from libschnorr256k1-kmp 1.1.0 remains:
 
 - `privkeyTweakAdd` (`secp256k1c_privkey_tweak_add`) reduces its inputs mod n before checking
   them, so it accepts a secret key of 0 or above n and a tweak of n or above, all of which

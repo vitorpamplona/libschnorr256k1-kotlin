@@ -21,6 +21,8 @@
 package com.vitorpamplona.schnorr256k1.kotlin
 
 import fr.acinq.secp256k1.Secp256k1
+import org.junit.Assume
+import org.junit.Before
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -36,6 +38,25 @@ import com.vitorpamplona.schnorr256k1.Schnorr256k1 as CSchnorr256k1
 class Schnorr256k1ApiParityTest {
     private val k = Schnorr256k1
     private val c = CSchnorr256k1
+
+    /**
+     * libschnorr256k1-kmp comes from JitPack, whose builds carry the JNI library for linux-x86_64
+     * only: on macOS (CI's arm64 JVM job, the release run) these comparisons are skipped, not failed.
+     */
+    @Before
+    fun needsTheCLibrary() {
+        val loadable =
+            try {
+                c.seckeyVerify(ByteArray(32) { 1 })
+                true
+            } catch (_: UnsatisfiedLinkError) {
+                false
+            } catch (_: IllegalStateException) {
+                false
+            }
+        Assume.assumeTrue("libschnorr256k1's JNI library is not in this platform's libschnorr256k1-kmp build", loadable)
+    }
+
     private val acinq = Secp256k1.get()
     private val r = Random(0xC0DE)
 
