@@ -30,13 +30,18 @@ import kotlin.test.assertEquals
  * P0 and their neighbours as well as at random, so values in [p, 2^256) (unreduced, as lazy add and
  * mul leave them), sums that carry out of 2^256 twice, differences that wrap twice and products
  * whose reduction carries out of 2^256 all come up. Outputs may be unreduced; they are compared
- * mod p, and must stay below 2^256.
+ * mod p, and must stay below 2^256. In jvmAndroidTest, so it also runs on the Android host and on
+ * devices, which take the fused reduction (reduceWideInline) and their own multiply-high.
  */
 class FieldPReferenceTest {
     private val p = BigInteger("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F", 16)
     private val two256 = BigInteger.ONE.shiftLeft(256)
     private val r = Random(0x5EC9)
     private val special = longArrayOf(0L, 1L, 2L, -1L, -2L, -4294968273L, -4294968272L, -4294968274L, 4294968273L, 4294968272L, Long.MIN_VALUE, Long.MAX_VALUE)
+
+    // BigInteger is much slower on ART (an emulator in CI): fewer random cases there.
+    private val onAndroid = System.getProperty("java.vm.name") == "Dalvik"
+    private val randomCases = if (onAndroid) 20_000 else 100_000
 
     private fun limb() = if (r.nextInt(3) == 0) r.nextLong() else special[r.nextInt(special.size)]
 
@@ -88,10 +93,45 @@ class FieldPReferenceTest {
     }
 
     @Test
+    fun reductionThatCarriesOutOfTwoToThe256() {
+        // A 512-bit lo + hi·2^256 whose first fold, lo + hi·C, leaves limbs 1-3 all ones: the carry
+        // fold then carries into limb 2 and out of 2^256 (the rare path), for FieldP.reduceWide (JVM,
+        // native) and reduceWideInline (Android's fused multiply).
+        val mask = two256 - BigInteger.ONE
+        val c = BigInteger.valueOf(4294968273L)
+        val w = Wide8()
+        val out = Fe4()
+        val out2 = Fe4()
+        repeat(50_000) {
+            val hi = big(fe())
+            val x = BigInteger(java.lang.Long.toUnsignedString(limb()))
+            val fold1 = two256 - BigInteger.ONE.shiftLeft(64) + x // limbs 1-3 all ones, limb 0 = x
+            val lo = (fold1 - hi * c).and(mask)
+            val l = lo.toByteArray().let { b -> ByteArray(32).also { o -> b.copyInto(o, 32 - minOf(32, b.size), maxOf(0, b.size - 32)) } }
+            val h = hi.toByteArray().let { b -> ByteArray(32).also { o -> b.copyInto(o, 32 - minOf(32, b.size), maxOf(0, b.size - 32)) } }
+            val lf = U256.fromBytes(l)
+            val hf = U256.fromBytes(h)
+            w.l0 = lf.l0
+            w.l1 = lf.l1
+            w.l2 = lf.l2
+            w.l3 = lf.l3
+            w.l4 = hf.l0
+            w.l5 = hf.l1
+            w.l6 = hf.l2
+            w.l7 = hf.l3
+            val expected = lo + hi.shiftLeft(256)
+            FieldP.reduceWide(out, w)
+            check("reduceWide", lf, hf, out, expected)
+            reduceWideInline(out2, w) { a, b -> unsignedMultiplyHigh(a, b) }
+            check("reduceWideInline", lf, hf, out2, expected)
+        }
+    }
+
+    @Test
     fun addSubMulSqrNegHalfMatchBigInteger() {
         val out = Fe4()
         val w = Wide8()
-        repeat(400_000) {
+        repeat(randomCases) {
             val a = fe()
             val b = fe()
             val ba = big(a)

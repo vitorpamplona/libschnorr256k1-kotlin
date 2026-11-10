@@ -134,7 +134,15 @@ kotlin {
             dependsOn(jvmAndroid)
         }
 
+        // Tests that need the JVM's library (BigInteger) and should also run on Android, on the host
+        // and on a device (each Android multiply-high path): FieldPReferenceTest.
+        val jvmAndroidTest =
+            create("jvmAndroidTest") {
+                dependsOn(commonTest.get())
+            }
+
         jvmTest {
+            dependsOn(jvmAndroidTest)
             dependencies {
                 // Cross-validation against libsecp256k1 (ACINQ) and libschnorr256k1 (C).
                 implementation(libs.secp256k1.kmp)
@@ -148,12 +156,14 @@ kotlin {
         }
 
         getByName("androidHostTest") {
+            dependsOn(jvmAndroidTest)
             dependencies {
                 implementation(libs.kotlin.test)
             }
         }
 
         getByName("androidDeviceTest") {
+            dependsOn(jvmAndroidTest)
             dependencies {
                 implementation(libs.kotlin.test)
                 implementation(libs.androidx.test.runner)
