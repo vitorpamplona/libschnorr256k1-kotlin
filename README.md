@@ -30,7 +30,7 @@ Nostr + Blossom. To take them from Nostr + Blossom (signed by the key
 
 ```kotlin
 plugins {
-    id("com.vitorpamplona.magpie") version "0.1.1"
+    id("com.vitorpamplona.magpie") version "0.2.0"
 }
 
 magpie {
