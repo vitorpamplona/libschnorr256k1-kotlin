@@ -7,7 +7,7 @@ android-minSdk = "26"
 cryptoKmp = "2.1.0"
 kotlin = "2.4.21"
 kotlinxCoroutines = "1.11.0"
-magpie = "0.1.1"
+magpie = "0.2.0"
 mavenPublish = "0.37.0"
 # libschnorr256k1-kmp 1.1.0's code, built by JitPack at that commit (settings.gradle.kts): a test dependency.
 schnorr256k1Kmp = "f19cabc890"
