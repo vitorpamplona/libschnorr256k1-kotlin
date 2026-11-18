@@ -84,7 +84,7 @@ jobs:
           generate_release_notes: true
 
   # The same publications on Nostr + Blossom, through Magpie's publishToNostr (the plugin version
-  # is in libs.versions.toml, the relays in gradle.properties), next to the Maven Central publish
+  # is in settings.gradle.kts, the relays in gradle.properties), next to the Maven Central publish
   # and independent of it: Central's upload limit can fail one without holding back the other.
   # It uploads every file to the release key's Blossom servers (kind 10063) and signs one release
   # event (kind 3071) for all of them, sent to the key's own relays (its kind 10002 and nostr.json). The

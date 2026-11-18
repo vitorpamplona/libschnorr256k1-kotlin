@@ -35,8 +35,13 @@ plugins {
 
 magpie {
     group("com.vitorpamplona.schnorr256k1")
+    group("com.vitorpamplona.crypto")
 }
 ```
+
+From 1.0.3 on, its dependency [crypto-kmp](https://github.com/vitorpamplona/crypto-kmp) is released on
+Nostr + Blossom only, so a build needs the `com.vitorpamplona.crypto` group above wherever it
+takes this library from, Maven Central included.
 
 Commit the `gradle/magpie.lock` it writes.
 
