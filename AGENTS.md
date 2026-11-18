@@ -97,4 +97,8 @@ Bump `VERSION_NAME` in `gradle.properties`, then push a `v<version>` tag. The
 `create-release.yml` workflow runs the Apple tests on macOS, then tests, publishes to Maven
 Central (from macOS, because of the cinterop) and opens the GitHub release. It needs the same
 signing secrets as crypto-kmp and quic-kmp (`SONATYPE_USERNAME`, `SONATYPE_PASSWORD`,
-`SIGNING_PRIVATE_KEY`, `SIGNING_PASSWORD`).
+`SIGNING_PRIVATE_KEY`, `SIGNING_PASSWORD`). Its `nostr` job publishes the same files to Nostr +
+Blossom with Magpie's `publishToNostr`, independently of Maven Central, so either can be re-run
+alone. It needs the two signing secrets and `MAGPIE_BUNKER`, a NIP-46 `bunker://` URI for the
+release key that `vitorpamplona.com/.well-known/nostr.json` names as `releases`; the signer
+approves each release, and a version already on Nostr fails the job.

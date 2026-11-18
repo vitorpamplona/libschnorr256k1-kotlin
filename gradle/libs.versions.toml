@@ -7,6 +7,7 @@ android-minSdk = "26"
 cryptoKmp = "2.1.0"
 kotlin = "2.4.21"
 kotlinxCoroutines = "1.11.0"
+magpie = "0.1.1"
 mavenPublish = "0.37.0"
 # libschnorr256k1-kmp 1.1.0's code, built by JitPack at that commit (settings.gradle.kts): a test dependency.
 schnorr256k1Kmp = "f19cabc890"
@@ -29,3 +30,4 @@ androidKotlinMultiplatformLibrary = { id = "com.android.kotlin.multiplatform.lib
 diffplugSpotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 vanniktech-mavenPublish = { id = "com.vanniktech.maven.publish", version.ref = "mavenPublish" }
+magpiePublish = { id = "com.vitorpamplona.magpie.publish", version.ref = "magpie" }

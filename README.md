@@ -23,6 +23,23 @@ dependencies {
 }
 ```
 
+Releases go to Maven Central and, through [Magpie](https://github.com/vitorpamplona/magpie), to
+Nostr + Blossom. To take them from Nostr + Blossom (signed by the key
+`vitorpamplona.com/.well-known/nostr.json` names as `releases`), add Magpie's settings plugin in
+`settings.gradle.kts`; Gradle has to run on Java 21 or newer:
+
+```kotlin
+plugins {
+    id("com.vitorpamplona.magpie") version "0.1.1"
+}
+
+magpie {
+    group("com.vitorpamplona.schnorr256k1")
+}
+```
+
+Commit the `gradle/magpie.lock` it writes.
+
 ## Platforms
 
 | Platform | Notes |
