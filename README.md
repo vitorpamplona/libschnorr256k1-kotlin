@@ -94,7 +94,7 @@ caches publish their entries with release/acquire ordering.
   multiplication per signature. Until 2026-11-07 the batch summed the signatures without weights,
   and two invalid signatures crafted to cancel (`s1 + d`, `s2 - d`) passed.
 
-## Fixed before the first release (1.0.1)
+## Fixed before the first release (1.0.2; 1.0.0 and 1.0.1 were tagged but never published)
 
 - **Square roots of small values.** The field multiply leaves results below 2²⁵⁶, not below p, and
   the square root compared `out²` with its input without reducing it. For an input below
